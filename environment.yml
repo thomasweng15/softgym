@@ -1,4 +1,4 @@
-name: softgym
+name: softgym_3d
 channels:
   - defaults
 dependencies:
@@ -14,7 +14,7 @@ dependencies:
   - plotly=2.0
   - pip:
     - gtimer
-    - gym==0.14.0
+    - gym==0.24.0
     - moviepy
     - opencv-python==4.1.1.26
     - Shapely==1.6.4.post2
