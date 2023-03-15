@@ -1,61 +1,9 @@
 import numpy as np
 import pyflex
+import gym
 from softgym.envs.cloth_env import FlexEnv
 from softgym.action_space.action_space import PickerPickPlace
 from softgym.utils.gemo_utils import *
-
-
-# def uv_to_world_pos(camera_params, depth, u, v, particle_radius=0.0075, on_table=False):
-#     height, width = depth.shape
-#     K = intrinsic_from_fov(height, width, 45)  # the fov is 90 degrees
-
-#     # from cam coord to world coord
-#     cam_x, cam_y, cam_z = (
-#         camera_params["default_camera"]["pos"][0],
-#         camera_params["default_camera"]["pos"][1],
-#         camera_params["default_camera"]["pos"][2],
-#     )
-#     cam_x_angle, cam_y_angle, cam_z_angle = (
-#         camera_params["default_camera"]["angle"][0],
-#         camera_params["default_camera"]["angle"][1],
-#         camera_params["default_camera"]["angle"][2],
-#     )
-
-#     # get rotation matrix: from world to camera
-#     matrix1 = get_rotation_matrix(-cam_x_angle, [0, 1, 0])
-#     matrix2 = get_rotation_matrix(-cam_y_angle - np.pi, [1, 0, 0])
-#     rotation_matrix = matrix2 @ matrix1
-
-#     # get translation matrix: from world to camera
-#     translation_matrix = np.eye(4)
-#     translation_matrix[0][3] = -cam_x
-#     translation_matrix[1][3] = -cam_y
-#     translation_matrix[2][3] = -cam_z
-#     matrix = np.linalg.inv(rotation_matrix @ translation_matrix)
-
-#     x0 = K[0, 2]
-#     y0 = K[1, 2]
-#     fx = K[0, 0]
-#     fy = K[1, 1]
-
-#     z = depth[int(np.rint(u)), int(np.rint(v))]
-#     if on_table or z == 0:
-#         vec = ((v - x0) / fx, (u - y0) / fy)
-#         z = (particle_radius - matrix[1, 3]) / (
-#             vec[0] * matrix[1, 0] + vec[1] * matrix[1, 1] + matrix[1, 2]
-#         )
-#     else:
-#         # adjust for particle radius from depth image
-#         z -= particle_radius
-
-#     x = (v - x0) * z / fx
-#     y = (u - y0) * z / fy
-
-#     cam_coord = np.ones(4)
-#     cam_coord[:3] = (x, y, z)
-#     world_coord = matrix @ cam_coord
-
-#     return world_coord
 
 
 class ClothEnv3D(FlexEnv):
@@ -81,6 +29,7 @@ class ClothEnv3D(FlexEnv):
             self.config["camera_name"],
             self.config["camera_params"][self.config["camera_name"]],
         )
+        self.unscaled_action_space = gym.spaces.Box(low=-1, high=1, shape=(3,))
         self.action_tool = PickerPickPlace(
             num_picker=self.num_pickers,
             picker_radius=picker_radius,
@@ -179,13 +128,13 @@ class ClothEnv3D(FlexEnv):
     def get_observations(self, cloth_only=True):
         self.render(mode="rgb_array")
         rgb, depth = self._get_rgbd(cloth_only=cloth_only)
-        pts = self._get_cloud()
+        object_pcd_points = self._get_cloud()
         obs = {
             "color": rgb, 
             "depth": depth, 
-            "object_pcd_points": pts,
+            "object_pcd_points": object_pcd_points,
             "goal_pcd_points": self.goal_pcd_points,
-            "poke_idx": 0 # TODO replace with predicted poke idx
+            # "poke_idx": 0 # TODO replace with predicted poke idx
         }
 
         # depth = depth * 255
@@ -262,7 +211,7 @@ class ClothEnv3D(FlexEnv):
             # self._step(action, pickplace, on_table=on_table)
             # if record_continuous_video and i % 2 == 0:  # No need to record each step
                 # frames.append(self.get_image(img_size, img_size))
-        nobs = self.get_observations(cloth_only=True)
+        nobs = self.get_observations(cloth_only=False)
         # reward = self._compute_reward(nobs['cloud'])
         # info = self._get_info()
 
@@ -289,8 +238,14 @@ class ClothEnv3D(FlexEnv):
         grasp_action = np.concatenate([location, [1]], axis=0)
         self.action_tool.step(grasp_action, render=not self.headless)
 
-        # TODO scale the action flow more appropriately
-        action_scaled = action_flow * 0.1
+        # TODO move to function
+        max_scale = [0.25, 0.125, 0.25]
+        action_scaled = action_flow.copy()
+        action_scaled[0] *= max_scale[0]
+        action_scaled[1] = ((action_scaled[1] + 1) / 2) * max_scale[1] # rescaled [-1, 1] to [0, max]
+        action_scaled[2] *= max_scale[2]
+        # action_scaled = action_flow * 0.1
+
         move_action = np.concatenate([location + action_scaled, [1]], axis=0)
         self.action_tool.step(move_action, render=not self.headless)
 
@@ -299,9 +254,65 @@ class ClothEnv3D(FlexEnv):
 
         # go to neutral position
         self._set_picker_pos(self.reset_pos)
-        for _ in range(20):
+        for _ in range(50):
             self.action_tool.step(self.reset_act, render=not self.headless)
-            pyflex.step()
+
+    def _rescale_action_flow(self, action_flow):
+        """Rescale action flow from [-1, 1] in all dimensions"""
+
 
     def _get_info(self):
         return {}
+
+
+# def uv_to_world_pos(camera_params, depth, u, v, particle_radius=0.0075, on_table=False):
+#     height, width = depth.shape
+#     K = intrinsic_from_fov(height, width, 45)  # the fov is 90 degrees
+
+#     # from cam coord to world coord
+#     cam_x, cam_y, cam_z = (
+#         camera_params["default_camera"]["pos"][0],
+#         camera_params["default_camera"]["pos"][1],
+#         camera_params["default_camera"]["pos"][2],
+#     )
+#     cam_x_angle, cam_y_angle, cam_z_angle = (
+#         camera_params["default_camera"]["angle"][0],
+#         camera_params["default_camera"]["angle"][1],
+#         camera_params["default_camera"]["angle"][2],
+#     )
+
+#     # get rotation matrix: from world to camera
+#     matrix1 = get_rotation_matrix(-cam_x_angle, [0, 1, 0])
+#     matrix2 = get_rotation_matrix(-cam_y_angle - np.pi, [1, 0, 0])
+#     rotation_matrix = matrix2 @ matrix1
+
+#     # get translation matrix: from world to camera
+#     translation_matrix = np.eye(4)
+#     translation_matrix[0][3] = -cam_x
+#     translation_matrix[1][3] = -cam_y
+#     translation_matrix[2][3] = -cam_z
+#     matrix = np.linalg.inv(rotation_matrix @ translation_matrix)
+
+#     x0 = K[0, 2]
+#     y0 = K[1, 2]
+#     fx = K[0, 0]
+#     fy = K[1, 1]
+
+#     z = depth[int(np.rint(u)), int(np.rint(v))]
+#     if on_table or z == 0:
+#         vec = ((v - x0) / fx, (u - y0) / fy)
+#         z = (particle_radius - matrix[1, 3]) / (
+#             vec[0] * matrix[1, 0] + vec[1] * matrix[1, 1] + matrix[1, 2]
+#         )
+#     else:
+#         # adjust for particle radius from depth image
+#         z -= particle_radius
+
+#     x = (v - x0) * z / fx
+#     y = (u - y0) * z / fy
+
+#     cam_coord = np.ones(4)
+#     cam_coord[:3] = (x, y, z)
+#     world_coord = matrix @ cam_coord
+
+#     return world_coord
