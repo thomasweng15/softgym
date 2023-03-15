@@ -194,7 +194,7 @@ class PickerPickPlace(Picker):
         self.delta_move = 0.01
         self.env = env
 
-    def step(self, action):
+    def step(self, action, render=False):
         """
         action: Array of pick_num x 4. For each picker, the action should be [x, y, z, pick/drop]. The picker will then first pick/drop, and keep
         the pick/drop state while moving towards x, y, x.
@@ -216,6 +216,8 @@ class PickerPickPlace(Picker):
                 delta = end_pos - curr_pos
             super().step(np.hstack([delta, action[:, 3].reshape(-1, 1)]))
             pyflex.step()
+            if render:
+                pyflex.render()
             total_steps += 1
             if self.env is not None and self.env.recording:
                 self.env.video_frames.append(self.env.render(mode='rgb_array'))
