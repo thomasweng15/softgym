@@ -46,7 +46,8 @@ class ClothEnv3D(FlexEnv):
 
     def get_default_config(self):
         particle_radius = self.cloth_particle_radius
-        cam_pos, cam_angle = np.array([-0.0, 0.65, 0.0]), np.array(
+        # cam_pos, cam_angle = np.array([-0.0, 0.65, 0.0]), np.array(
+        cam_pos, cam_angle = np.array([-0.0, 1.5, 0.0]), np.array(
             [0, -np.pi / 2.0, 0.0]
         )
         config = {
@@ -239,7 +240,8 @@ class ClothEnv3D(FlexEnv):
         self.action_tool.step(grasp_action, render=not self.headless)
 
         # TODO move to function
-        max_scale = [0.25, 0.125, 0.25]
+        # max_scale = [0.25, 0.125, 0.25]
+        max_scale = [0.125, 0.125, 0.125]
         action_scaled = action_flow.copy()
         action_scaled[0] *= max_scale[0]
         action_scaled[1] = ((action_scaled[1] + 1) / 2) * max_scale[1] # rescaled [-1, 1] to [0, max]
@@ -254,7 +256,7 @@ class ClothEnv3D(FlexEnv):
 
         # go to neutral position
         self._set_picker_pos(self.reset_pos)
-        for _ in range(50):
+        for _ in range(150):
             self.action_tool.step(self.reset_act, render=not self.headless)
 
     def _rescale_action_flow(self, action_flow):
