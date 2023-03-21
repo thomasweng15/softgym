@@ -29,7 +29,6 @@ class ClothEnv3D(FlexEnv):
             self.config["camera_name"],
             self.config["camera_params"][self.config["camera_name"]],
         )
-        self.unscaled_action_space = gym.spaces.Box(low=-1, high=1, shape=(3,))
         self.action_tool = PickerPickPlace(
             num_picker=self.num_pickers,
             picker_radius=picker_radius,
@@ -186,7 +185,7 @@ class ClothEnv3D(FlexEnv):
             self.goal_pcd_points = goal_pcd_points
 
         self.render(mode="rgb_array")
-        obs = self.get_observations()
+        obs = self.get_observations(cloth_only=False)
 
         return obs
 
