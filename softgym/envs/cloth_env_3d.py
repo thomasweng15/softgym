@@ -20,7 +20,7 @@ class ClothEnv3D(FlexEnv):
         self.num_pickers = num_pickers
         self.success_threshold = success_threshold
         self.headless = headless
-        super().__init__(**kwargs)
+        super().__init__(headless=headless, **kwargs)
 
         # cloth shape
         self.config = self.get_default_config()
@@ -103,6 +103,7 @@ class ClothEnv3D(FlexEnv):
         pyflex.set_shape_states(shape_states)
 
     def _get_rgbd(self, cloth_only=False):
+        self.render(mode="rgb_array")
         if cloth_only:
             rgb, depth = pyflex.render_cloth()
         else:
@@ -126,7 +127,6 @@ class ClothEnv3D(FlexEnv):
         return pyflex.get_positions().reshape(-1, 4)[:, :3]
 
     def get_observations(self, cloth_only=True):
-        self.render(mode="rgb_array")
         rgb, depth = self._get_rgbd(cloth_only=cloth_only)
         object_pcd_points = self._get_cloud()
         obs = {
@@ -184,7 +184,7 @@ class ClothEnv3D(FlexEnv):
         if goal_pcd_points is not None:
             self.goal_pcd_points = goal_pcd_points
 
-        self.render(mode="rgb_array")
+        # self.render(mode="rgb_array")
         obs = self.get_observations(cloth_only=False)
 
         return obs
@@ -255,12 +255,9 @@ class ClothEnv3D(FlexEnv):
 
         # go to neutral position
         self._set_picker_pos(self.reset_pos)
-        for _ in range(150):
+        # for _ in range(150):
+        for _ in range(20):
             self.action_tool.step(self.reset_act, render=not self.headless)
-
-    def _rescale_action_flow(self, action_flow):
-        """Rescale action flow from [-1, 1] in all dimensions"""
-
 
     def _get_info(self):
         return {}
