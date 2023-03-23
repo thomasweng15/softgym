@@ -1,6 +1,7 @@
 import numpy as np
 import pyflex
 import gym
+import copy
 from softgym.envs.cloth_env import FlexEnv
 from softgym.action_space.action_space import PickerPickPlace
 from softgym.utils.gemo_utils import *
@@ -14,12 +15,14 @@ class ClothEnv3D(FlexEnv):
         num_pickers=1,
         success_threshold=0.003,
         headless=False,
+        record=False,
         **kwargs
     ):
         self.cloth_particle_radius = particle_radius
         self.num_pickers = num_pickers
         self.success_threshold = success_threshold
         self.headless = headless
+        self.record = record
         super().__init__(headless=headless, **kwargs)
 
         # cloth shape
@@ -198,39 +201,30 @@ class ClothEnv3D(FlexEnv):
     def step(
         self,
         action,
-        record_continuous_video=False,
-        img_size=None,
-        # pickplace=False,
-        # on_table=False,
     ):
         """If record_continuous_video is set to True, will record an image for each sub-step"""
-        # frames = []
-        # obs = self.get_observations()
-        for i in range(self.action_repeat):
-            self._step(action)
-            # self._step(action, pickplace, on_table=on_table)
-            # if record_continuous_video and i % 2 == 0:  # No need to record each step
-                # frames.append(self.get_image(img_size, img_size))
-        nobs = self.get_observations(cloth_only=False)
-        # reward = self._compute_reward(nobs['cloud'])
-        # info = self._get_info()
+        if self.record: 
+            self.start_record()
+            self.video_frames.append(self.get_image())
 
-        # if self.recording:
-            # self.video_frames.append(self.render(mode="rgb_array"))
+        self._step(action)
+        nobs = self.get_observations(cloth_only=False)
+
         self.time_step += 1
 
-        # done = False
-        # if self.time_step >= self.horizon:
-            # done = True
-        # if record_continuous_video:
-            # info["flex_env_recorded_frames"] = frames
-        # return nobs, reward, done, info
-        return nobs
+        if self.record:
+            self.video_frames.append(self.get_image())
+            info = {
+                "cam_frames": copy.copy(self.video_frames)
+            }
+            del self.video_frames
+        else: 
+            info = {}
+        return nobs, info
 
     # def _step(self, action, pickplace=False, on_table=True):
     def _step(self, action):
         """Action is the 3D coordinate of a cloth node and the flow of the action"""
-        # TODO handle multiple pickers
         location, action_flow = action
 
         # Teleport picker to location and grasp
@@ -255,7 +249,6 @@ class ClothEnv3D(FlexEnv):
 
         # go to neutral position
         self._set_picker_pos(self.reset_pos)
-        # for _ in range(150):
         for _ in range(20):
             self.action_tool.step(self.reset_act, render=not self.headless)
 
