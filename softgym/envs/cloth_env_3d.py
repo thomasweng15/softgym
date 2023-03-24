@@ -134,10 +134,11 @@ class ClothEnv3D(FlexEnv):
         object_pcd_points = self._get_cloud()
         obs = {
             "color": rgb, 
-            "depth": depth, 
+            # "depth": depth, 
             "object_pcd_points": object_pcd_points,
             "goal_pcd_points": self.goal_pcd_points,
-            # "poke_idx": 0 # TODO replace with predicted poke idx
+            "action_location_score": 0.,
+            "poke_idx": 0,
         }
 
         # depth = depth * 255
