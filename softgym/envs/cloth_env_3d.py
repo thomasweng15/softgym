@@ -208,7 +208,7 @@ class ClothEnv3D(FlexEnv):
             self.start_record()
             self.video_frames.append(self.get_image())
 
-        self._step(action)
+        action_scaled = self._step(action)
         nobs = self.get_observations(cloth_only=False)
 
         self.time_step += 1
@@ -221,6 +221,7 @@ class ClothEnv3D(FlexEnv):
             del self.video_frames
         else: 
             info = {}
+        info['action_scaled'] = action_scaled
         return nobs, info
 
     # def _step(self, action, pickplace=False, on_table=True):
@@ -252,6 +253,8 @@ class ClothEnv3D(FlexEnv):
         self._set_picker_pos(self.reset_pos)
         for _ in range(20):
             self.action_tool.step(self.reset_act, render=not self.headless)
+        
+        return action_scaled
 
     def _get_info(self):
         return {}
