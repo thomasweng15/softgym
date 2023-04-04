@@ -256,6 +256,14 @@ class ClothEnv3D(FlexEnv):
         
         return action_scaled
 
+    def unscale_action(self, action_param_envscaled):
+        max_scale = [0.125, 0.125, 0.125]
+        action_unscaled = action_param_envscaled.copy()
+        action_unscaled[0] /= max_scale[0]
+        action_unscaled[1] = (action_unscaled[1] / max_scale[1]) * 2 - 1 # rescaled [0, max] to [-1, 1]
+        action_unscaled[2] /= max_scale[2]
+        return action_unscaled
+
     def _get_info(self):
         return {}
 
