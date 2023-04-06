@@ -12,6 +12,7 @@ dependencies:
   - joblib
   - Pillow=6.1
   - python=3.7
+  - pip
   - pip:
     - gtimer
     - gym==0.24.0
