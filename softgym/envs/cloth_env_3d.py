@@ -1,7 +1,7 @@
 import numpy as np
 import pyflex
-import gym
 import copy
+import random
 from softgym.envs.cloth_env import FlexEnv
 from softgym.action_space.action_space import PickerPickPlace
 from softgym.utils.gemo_utils import *
@@ -16,6 +16,7 @@ class ClothEnv3D(FlexEnv):
         success_threshold=0.003,
         headless=False,
         record=False,
+        goals_abspath='',
         **kwargs
     ):
         self.cloth_particle_radius = particle_radius
@@ -42,9 +43,17 @@ class ClothEnv3D(FlexEnv):
             collect_steps=False,
         )
         self.action_tool.delta_move = 0.005
-        self.goal_pcd_points = None
         self.reset_act = np.array([0.0, 0.1, -0.6, 0.0, 0.0, 0.1, -0.6, 0.0])
         self.reset_pos = np.array([0.0, 0.1, -0.6, 0.0, 0.1, -0.6])
+
+        # Initialize goals
+        self._init_goals(goals_abspath)
+        self.goal_pcd_points = None
+
+    def _init_goals(self, goals_abspath):
+        self.goals = [np.load(f, allow_pickle=True) 
+            for f in goals_abspath.iterdir() 
+            if f.is_file() and f.suffix == '.npy']
 
     def get_default_config(self):
         particle_radius = self.cloth_particle_radius
@@ -134,7 +143,7 @@ class ClothEnv3D(FlexEnv):
         object_pcd_points = self._get_cloud()
         obs = {
             "color": rgb, 
-            # "depth": depth, 
+            "depth": depth, 
             "object_pcd_points": object_pcd_points,
             "goal_pcd_points": self.goal_pcd_points,
             "action_location_score": 0.,
@@ -173,7 +182,8 @@ class ClothEnv3D(FlexEnv):
         )
         pyflex.set_scene(env_idx, scene_params, 0)
 
-    def reset(self, goal_pcd_points=None):
+    def reset(self
+    ):
         self.set_scene()
         self.particle_num = pyflex.get_n_particles()
         self.prev_reward = 0.0
@@ -185,8 +195,7 @@ class ClothEnv3D(FlexEnv):
         # if self.recording:
             # self.video_frames.append(self.render(mode="rgb_array"))
 
-        if goal_pcd_points is not None:
-            self.goal_pcd_points = goal_pcd_points
+        self.goal_pcd_points = random.sample(self.goals, 1)[0]
 
         # self.render(mode="rgb_array")
         obs = self.get_observations(cloth_only=False)
