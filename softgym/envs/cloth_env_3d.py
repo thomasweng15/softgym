@@ -47,7 +47,9 @@ class ClothEnv3D(FlexEnv):
         self.reset_pos = np.array([0.0, 0.1, -0.6, 0.0, 0.1, -0.6])
 
         # Initialize goals
-        self._init_goals(goals_abspath)
+        self.goals = []
+        if goals_abspath != '':
+            self._init_goals(goals_abspath)
         self.goal_pcd_points = None
 
     def _init_goals(self, goals_abspath):
@@ -140,6 +142,8 @@ class ClothEnv3D(FlexEnv):
 
     def get_observations(self, cloth_only=True):
         rgb, depth = self._get_rgbd(cloth_only=cloth_only)
+        rgb = rgb[::-1, :, :]  # reverse the height dimension
+        depth = depth[::-1, :]  # reverse the height dimension
         object_pcd_points = self._get_cloud()
         obs = {
             "color": rgb, 
@@ -195,7 +199,8 @@ class ClothEnv3D(FlexEnv):
         # if self.recording:
             # self.video_frames.append(self.render(mode="rgb_array"))
 
-        self.goal_pcd_points = random.sample(self.goals, 1)[0]
+        if self.goals != []:
+            self.goal_pcd_points = random.sample(self.goals, 1)[0]
 
         # self.render(mode="rgb_array")
         obs = self.get_observations(cloth_only=False)
@@ -275,56 +280,3 @@ class ClothEnv3D(FlexEnv):
 
     def _get_info(self):
         return {}
-
-
-# def uv_to_world_pos(camera_params, depth, u, v, particle_radius=0.0075, on_table=False):
-#     height, width = depth.shape
-#     K = intrinsic_from_fov(height, width, 45)  # the fov is 90 degrees
-
-#     # from cam coord to world coord
-#     cam_x, cam_y, cam_z = (
-#         camera_params["default_camera"]["pos"][0],
-#         camera_params["default_camera"]["pos"][1],
-#         camera_params["default_camera"]["pos"][2],
-#     )
-#     cam_x_angle, cam_y_angle, cam_z_angle = (
-#         camera_params["default_camera"]["angle"][0],
-#         camera_params["default_camera"]["angle"][1],
-#         camera_params["default_camera"]["angle"][2],
-#     )
-
-#     # get rotation matrix: from world to camera
-#     matrix1 = get_rotation_matrix(-cam_x_angle, [0, 1, 0])
-#     matrix2 = get_rotation_matrix(-cam_y_angle - np.pi, [1, 0, 0])
-#     rotation_matrix = matrix2 @ matrix1
-
-#     # get translation matrix: from world to camera
-#     translation_matrix = np.eye(4)
-#     translation_matrix[0][3] = -cam_x
-#     translation_matrix[1][3] = -cam_y
-#     translation_matrix[2][3] = -cam_z
-#     matrix = np.linalg.inv(rotation_matrix @ translation_matrix)
-
-#     x0 = K[0, 2]
-#     y0 = K[1, 2]
-#     fx = K[0, 0]
-#     fy = K[1, 1]
-
-#     z = depth[int(np.rint(u)), int(np.rint(v))]
-#     if on_table or z == 0:
-#         vec = ((v - x0) / fx, (u - y0) / fy)
-#         z = (particle_radius - matrix[1, 3]) / (
-#             vec[0] * matrix[1, 0] + vec[1] * matrix[1, 1] + matrix[1, 2]
-#         )
-#     else:
-#         # adjust for particle radius from depth image
-#         z -= particle_radius
-
-#     x = (v - x0) * z / fx
-#     y = (u - y0) * z / fy
-
-#     cam_coord = np.ones(4)
-#     cam_coord[:3] = (x, y, z)
-#     world_coord = matrix @ cam_coord
-
-#     return world_coord
