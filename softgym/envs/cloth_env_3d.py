@@ -2,6 +2,7 @@ import numpy as np
 import pyflex
 import copy
 import random
+from pathlib import Path
 from softgym.envs.cloth_env import FlexEnv
 from softgym.action_space.action_space import PickerPickPlace
 from softgym.utils.gemo_utils import *
@@ -16,7 +17,7 @@ class ClothEnv3D(FlexEnv):
         success_threshold=0.003,
         headless=False,
         record=False,
-        goals_abspath='',
+        goals_path='',
         **kwargs
     ):
         self.cloth_particle_radius = particle_radius
@@ -48,13 +49,13 @@ class ClothEnv3D(FlexEnv):
 
         # Initialize goals
         self.goals = []
-        if goals_abspath != '':
-            self._init_goals(goals_abspath)
+        if goals_path != '':
+            self._init_goals(goals_path)
         self.goal_pcd_points = None
 
-    def _init_goals(self, goals_abspath):
+    def _init_goals(self, goals_path):
         self.goals = [np.load(f, allow_pickle=True) 
-            for f in goals_abspath.iterdir() 
+            for f in Path(goals_path).iterdir() 
             if f.is_file() and f.suffix == '.npy']
 
     def get_default_config(self):
