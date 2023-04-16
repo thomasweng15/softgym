@@ -152,6 +152,14 @@ class ClothEnv3D(FlexEnv):
     def _get_cloud(self):
         return pyflex.get_positions().reshape(-1, 4)[:, :3]
 
+    def get_corner_idxs(self):
+        """Get the corner idxs of the cloth mesh"""
+        x, y = self.config['ClothSize']
+        corner_idxs = np.array([
+            0, x-1, x*(y-1), x*y-1
+        ])
+        return corner_idxs
+
     def get_observations(self, cloth_only=True):
         rgb, depth = self._get_rgbd(cloth_only=cloth_only)
         rgb = rgb[::-1, :, :]  # reverse the height dimension
@@ -164,16 +172,8 @@ class ClothEnv3D(FlexEnv):
             "goal_pcd_points": self.goal_pcd_points,
             "action_location_score": 0.,
             "poke_idx": 0,
+            "cloth_corners": object_pcd_points[self.get_corner_idxs()],
         }
-
-        # depth = depth * 255
-        # depth = depth.astype(np.uint8)
-        # depth_st = np.dstack([depth, depth, depth])
-        # depth_img = Image.fromarray(depth_st)
-        # depth_img = depth_img.resize(size=(200, 200))
-        # depth_img = np.array(depth_img)
-        # obs["depth"] = depth
-
         return obs
 
     def set_scene(self):
