@@ -162,6 +162,14 @@ class ClothEnv3D(FlexEnv):
         ])
         return corner_idxs
 
+    def get_edge_idxs(self):
+        """Get edge idxs of the cloth mesh"""
+        x, y = self.config['ClothSize']
+        edge_idxs = np.array([
+            np.arange(x), np.arange(x*(y-1), x*y), np.arange(0, x*y, x), np.arange(x-1, x*y, x)
+        ]).flatten()
+        return edge_idxs
+
     def get_observations(self, cloth_only=True):
         rgb, depth = self._get_rgbd(cloth_only=cloth_only)
         rgb = rgb[::-1, :, :]  # reverse the height dimension
