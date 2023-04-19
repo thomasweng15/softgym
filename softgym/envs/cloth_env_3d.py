@@ -19,6 +19,7 @@ class ClothEnv3D(FlexEnv):
         record=False,
         goals_path=None,
         init_cloth_path=None,
+        wait_steps=20,
         **kwargs
     ):
         self.cloth_particle_radius = particle_radius
@@ -26,6 +27,7 @@ class ClothEnv3D(FlexEnv):
         self.success_threshold = success_threshold
         self.headless = headless
         self.record = record
+        self.wait_steps = wait_steps
         super().__init__(headless=headless, **kwargs)
 
         # cloth shape
@@ -281,7 +283,7 @@ class ClothEnv3D(FlexEnv):
 
         # go to neutral position
         self._set_picker_pos(self.reset_pos)
-        for _ in range(20):
+        for _ in range(self.wait_steps):
             self.action_tool.step(self.reset_act, render=not self.headless)
         
         return action_scaled
