@@ -17,8 +17,8 @@ class ClothEnv3D(FlexEnv):
         success_threshold=0.003,
         headless=False,
         record=False,
-        goals_path=None,
-        init_cloth_path=None,
+        starts_list=[],
+        goals_list=[],
         wait_steps=20,
         **kwargs
     ):
@@ -27,6 +27,8 @@ class ClothEnv3D(FlexEnv):
         self.success_threshold = success_threshold
         self.headless = headless
         self.record = record
+        self.starts_list = starts_list
+        self.goals_list = goals_list
         self.wait_steps = wait_steps
         super().__init__(headless=headless, **kwargs)
 
@@ -50,26 +52,12 @@ class ClothEnv3D(FlexEnv):
         self.reset_act = np.array([0.0, 0.1, -0.6, 0.0, 0.0, 0.1, -0.6, 0.0])
         self.reset_pos = np.array([0.0, 0.1, -0.6, 0.0, 0.1, -0.6])
 
-        # Initial cloth states
-        self.starts = []
-        if init_cloth_path != None:
-            self._init_starts(init_cloth_path)
-
-        # Initialize goals
-        self.goals = []
-        if goals_path != None:
-            self._init_goals(goals_path)
         self.goal_pcd_points = None
 
-    def _init_starts(self, starts_path):
-        self.starts = [np.load(f, allow_pickle=True) 
-            for f in Path(starts_path).iterdir() 
-            if f.is_file() and f.suffix == '.npy']
-
-    def _init_goals(self, goals_path):
-        self.goals = [np.load(f, allow_pickle=True) 
-            for f in Path(goals_path).iterdir() 
-            if f.is_file() and f.suffix == '.npy']
+    def _sample_cloth_pose(self, pose_list):
+        poses_path = random.sample(pose_list, 1)[0]
+        pcd_points = np.load(poses_path, allow_pickle=True)
+        return pcd_points
 
     def get_default_config(self):
         particle_radius = self.cloth_particle_radius
@@ -213,8 +201,8 @@ class ClothEnv3D(FlexEnv):
         self.particle_num = pyflex.get_n_particles()
         self.prev_reward = 0.0
         self.time_step = 0
-        if self.starts != []:
-            reset_state = random.sample(self.starts, 1)[0]
+        if self.starts_list != []:
+            reset_state = self._sample_cloth_pose(self.starts_list)
             reset_state = np.concatenate([reset_state, np.ones([reset_state.shape[0], 1])], axis=1)
             pyflex.set_positions(reset_state)
             pyflex.step()
@@ -226,18 +214,12 @@ class ClothEnv3D(FlexEnv):
         # if self.recording:
             # self.video_frames.append(self.render(mode="rgb_array"))
 
-        if self.goals != []:
-            self.goal_pcd_points = random.sample(self.goals, 1)[0]
+        if self.goals_list != []:
+            self.goal_pcd_points = self._sample_cloth_pose(self.goals_list)
 
         obs = self.get_observations(cloth_only=False)
 
         return obs
-
-    # def _compute_reward(self, curr_cloud):
-    #     if self.goal_cloud is None:
-    #         return -1000
-    #     pos_metric = np.linalg.norm(self.goal - curr_cloud, axis=1).mean()
-    #     return pos_metric
 
     def step(
         self,
