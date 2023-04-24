@@ -20,6 +20,8 @@ class ClothEnv3D(FlexEnv):
         starts_list=[],
         goals_list=[],
         wait_steps=20,
+        planar_action=True,
+        max_action_scale = [0.125, 0.125, 0.125],
         **kwargs
     ):
         self.cloth_particle_radius = particle_radius
@@ -30,6 +32,8 @@ class ClothEnv3D(FlexEnv):
         self.starts_list = starts_list
         self.goals_list = goals_list
         self.wait_steps = wait_steps
+        self.planar_action = planar_action
+        self.max_action_scale = max_action_scale # x z y 
         super().__init__(headless=headless, **kwargs)
 
         # cloth shape
@@ -246,7 +250,6 @@ class ClothEnv3D(FlexEnv):
         info['action_scaled'] = action_scaled
         return nobs, info
 
-    # def _step(self, action, pickplace=False, on_table=True):
     def _step(self, action):
         """Action is the 3D coordinate of a cloth node and the flow of the action"""
         location, action_flow = action
@@ -256,20 +259,37 @@ class ClothEnv3D(FlexEnv):
         grasp_action = np.concatenate([location, [1]], axis=0)
         self.action_tool.step(grasp_action, render=not self.headless)
 
-        # TODO move to function
-        # max_scale = [0.25, 0.125, 0.25]
-        max_scale = [0.125, 0.125, 0.125]
-        action_scaled = action_flow.copy()
-        action_scaled[0] *= max_scale[0]
-        action_scaled[1] = ((action_scaled[1] + 1) / 2) * max_scale[1] # rescaled [-1, 1] to [0, max]
-        action_scaled[2] *= max_scale[2]
-        # action_scaled = action_flow * 0.1
+        if self.planar_action:
+            action_scaled = np.zeros((3,))
+            action_scaled[0] = action_flow[0]*self.max_action_scale[0] # x
+            action_scaled[2] = action_flow[1]*self.max_action_scale[2] # y
+            raise_z = np.array([0, 0.075, 0]) 
+            # lower_z = np.array([0, -0.05, 0]) 
 
-        move_action = np.concatenate([location + action_scaled, [1]], axis=0)
-        self.action_tool.step(move_action, render=not self.headless)
+            pick = np.concatenate([location+raise_z, [1]], axis=0)
+            move = np.concatenate([location+raise_z+action_scaled, [1]], axis=0)
+            # lower = np.concatenate([location+raise_z+action_scaled+lower_z, [1]], axis=0)
+            # drop = np.concatenate([location+raise_z+action_scaled+lower_z, [0]], axis=0)
+            drop = np.concatenate([location+raise_z+action_scaled, [0]], axis=0)
 
-        drop_action = np.concatenate([location + action_scaled, [0]], axis=0)
-        self.action_tool.step(drop_action, render=not self.headless)
+            # sub_actions = [pick, move, lower, drop]
+            sub_actions = [pick, move, drop]
+            for sub in sub_actions:
+                self.action_tool.step(sub, render=not self.headless)
+                # for _ in range(5):
+                #     pyflex.step()
+        else:
+            action_scaled = action_flow.copy()
+            action_scaled[0] *= self.max_action_scale[0]
+            action_scaled[1] = ((action_scaled[1] + 1) / 2) * self.max_action_scale[1] # rescaled [-1, 1] to [0, max]
+            action_scaled[2] *= self.max_action_scale[2]
+            # action_scaled = action_flow * 0.1
+
+            move_action = np.concatenate([location + action_scaled, [1]], axis=0)
+            self.action_tool.step(move_action, render=not self.headless)
+
+            drop_action = np.concatenate([location + action_scaled, [0]], axis=0)
+            self.action_tool.step(drop_action, render=not self.headless)
 
         # go to neutral position
         self._set_picker_pos(self.reset_pos)
@@ -279,11 +299,15 @@ class ClothEnv3D(FlexEnv):
         return action_scaled
 
     def unscale_action(self, action_param_envscaled):
-        max_scale = [0.125, 0.125, 0.125]
-        action_unscaled = action_param_envscaled.copy()
-        action_unscaled[0] /= max_scale[0]
-        action_unscaled[1] = (action_unscaled[1] / max_scale[1]) * 2 - 1 # rescaled [0, max] to [-1, 1]
-        action_unscaled[2] /= max_scale[2]
+        if self.planar_action:
+            action_unscaled = action_param_envscaled.copy()
+            action_unscaled[0] /= self.max_action_scale[0] # x 
+            action_unscaled[1] /= self.max_action_scale[2] # y
+        else:
+            action_unscaled = action_param_envscaled.copy()
+            action_unscaled[0] /= self.max_action_scale[0]
+            action_unscaled[1] = (action_unscaled[1] / self.max_action_scale[1]) * 2 - 1 # rescaled [0, max] to [-1, 1]
+            action_unscaled[2] /= self.max_action_scale[2]
         return action_unscaled
 
     def _get_info(self):
