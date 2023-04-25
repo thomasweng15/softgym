@@ -8,6 +8,54 @@ from softgym.action_space.action_space import PickerPickPlace
 from softgym.utils.gemo_utils import *
 
 
+def get_visible_idxs(particle_pos, depth, extrinsic_matrix, zthresh=0.01):
+    # project particle_pos into depth image coordinates
+    visible_idxs = []
+    height, width = depth.shape
+    K = intrinsic_from_fov(height, width, 45) # the fov is 90 degrees
+    for i, pos in enumerate(particle_pos):
+
+        # project the point into the image
+        pos_h = np.array([pos[0], pos[1], pos[2], 1.0]) # x z y -> x z y 1 
+        cam_coord = extrinsic_matrix.round(7) @ pos_h
+        
+        u0 = K[0, 2]
+        v0 = K[1, 2]
+        fx = K[0, 0]
+        fy = K[1, 1]
+
+        cam_coord = cam_coord.round(7)
+        x, y, z = cam_coord[0], cam_coord[1], cam_coord[2]
+        u = x * fx / z + u0
+        v = y * fy / z + v0
+        u = int(np.rint(u))
+        v = int(np.rint(v))
+
+        # depth at v, u can be 0 due to floating point inaccuracy
+        # but this value would never be encountered in a real projection
+        # as 0 corresponds to a non cloth pixel
+        if depth[v, u] == 0:
+            # check adjacent pixels
+            # if they are nonzero, use the closest one
+            # otherwise, check the next ring of pixels
+            # if none of them are nonzero, then the point is not visible
+            found = False
+            for du in range(-1, 2):
+                for dv in range(-1, 2):
+                    if depth[v + dv, u + du] != 0:
+                        u += du
+                        v += dv
+                        found = True
+                        break
+                if found:
+                    break
+
+        zdiff = np.abs(depth[v, u] - z)
+        if zdiff < zthresh:
+            visible_idxs.append(i)
+
+    return visible_idxs
+
 class ClothEnv3D(FlexEnv):
     def __init__(
         self,
@@ -57,6 +105,9 @@ class ClothEnv3D(FlexEnv):
         self.reset_pos = np.array([0.0, 0.1, -0.6, 0.0, 0.1, -0.6])
 
         self.goal_pcd_points = None
+        self.extrinsic_matrix = get_extrinsic_matrix(self)
+        self.corner_idxs = self.get_corner_idxs()
+        self.edge_idxs = self.get_edge_idxs()
 
     def _sample_cloth_pose(self, pose_list):
         poses_path = random.sample(pose_list, 1)[0]
@@ -140,7 +191,7 @@ class ClothEnv3D(FlexEnv):
             self.camera_params["default_camera"]["width"],
         )
         # depth = depth[::-1, :]  # reverse the height dimension
-        # depth[depth >= 999] = 0  # use 0 instead of 999 for null
+        depth[depth >= 999] = 0  # use 0 instead of 999 for null
         return rgb, depth
 
     def _get_cloud(self):
@@ -163,10 +214,47 @@ class ClothEnv3D(FlexEnv):
         return edge_idxs
 
     def get_observations(self, cloth_only=True):
+        rgb_cloth, depth_cloth = self._get_rgbd(cloth_only=True)
+        rgb_cloth = rgb_cloth[::-1, :, :]  # reverse the height dimension
+        depth_cloth = depth_cloth[::-1, :]  # reverse the height dimension
         rgb, depth = self._get_rgbd(cloth_only=cloth_only)
         rgb = rgb[::-1, :, :]  # reverse the height dimension
         depth = depth[::-1, :]  # reverse the height dimension
         object_pcd_points = self._get_cloud()
+        visible_idxs = get_visible_idxs(object_pcd_points, depth_cloth, self.extrinsic_matrix)
+        
+        # make a plotly plot with the observable idxs
+        if False:
+            import plotly.graph_objects as go
+            fig = go.Figure(data=[
+                go.Scatter3d(
+                x=object_pcd_points[observable_idxs, 0],
+                y=object_pcd_points[observable_idxs, 2],
+                z=object_pcd_points[observable_idxs, 1],
+                mode='markers',
+                marker=dict(
+                    size=3,
+                    color='red',
+                    opacity=0.8
+                    )
+                ),
+                go.Scatter3d(
+                x=object_pcd_points[:, 0],
+                y=object_pcd_points[:, 2],
+                z=object_pcd_points[:, 1],
+                mode='markers',
+                marker=dict(
+                    size=2,
+                    color='blue',
+                    opacity=0.8
+                    )
+                )
+            ])
+            fig.update_layout(scene_zaxis_range=[0, 0.5])
+            fig.update_layout(scene_xaxis_range=[-0.3, 0.3])
+            fig.update_layout(scene_yaxis_range=[-0.3, 0.3])
+            fig.show()
+
         obs = {
             "color": rgb, 
             "depth": depth, 
@@ -174,7 +262,9 @@ class ClothEnv3D(FlexEnv):
             "goal_pcd_points": self.goal_pcd_points,
             "action_location_score": 0.,
             "poke_idx": 0,
-            "cloth_corners": object_pcd_points[self.get_corner_idxs()],
+            "cloth_corners": object_pcd_points[self.corner_idxs],
+            "cloth_edges": object_pcd_points[self.edge_idxs],
+            "visible_idxs": visible_idxs
         }
         return obs
 

@@ -67,6 +67,26 @@ def get_rotation_matrix(angle, axis):
 
 	return m
 
+def get_extrinsic_matrix(env):
+	# from cam coord to world coord
+	cam_x, cam_y, cam_z = env.camera_params['default_camera']['pos'][0], env.camera_params['default_camera']['pos'][1], env.camera_params['default_camera']['pos'][2]
+	# cam_x, cam_z, cam_y = env.camera_params['default_camera']['pos'][0], env.camera_params['default_camera']['pos'][1], env.camera_params['default_camera']['pos'][2]
+	cam_x_angle, cam_y_angle, cam_z_angle = env.camera_params['default_camera']['angle'][0], env.camera_params['default_camera']['angle'][1], env.camera_params['default_camera']['angle'][2]
+	# cam_x_angle, cam_z_angle, cam_y_angle = env.camera_params['default_camera']['angle'][0], env.camera_params['default_camera']['angle'][1], env.camera_params['default_camera']['angle'][2]
+
+	# get rotation matrix: from world to camera
+	matrix1 = get_rotation_matrix(- cam_x_angle, [0, 1, 0]) 
+	# matrix2 = get_rotation_matrix(- cam_y_angle - np.pi, [np.cos(cam_x_angle), 0, np.sin(cam_x_angle)])
+	matrix2 = get_rotation_matrix(- cam_y_angle - np.pi, [1, 0, 0])
+	rotation_matrix = matrix2 @ matrix1
+	
+	# get translation matrix: from world to camera
+	translation_matrix = np.eye(4)
+	translation_matrix[0][3] = - cam_x
+	translation_matrix[1][3] = - cam_y
+	translation_matrix[2][3] = - cam_z
+	return rotation_matrix @ translation_matrix
+
 
 def get_world_coords(rgb, depth, env):
 	height, width, _ = rgb.shape
@@ -78,16 +98,25 @@ def get_world_coords(rgb, depth, env):
 	v0 = K[1, 2]
 	fx = K[0, 0]
 	fy = K[1, 1]
-	# Loop through each pixel in the image
-	for v in range(height):
-		for u in range(width):
-			# Apply equation in fig 3
-			x = (u - u0) * depth[v, u] / fx
-			y = (v - v0) * depth[v, u] / fy
-			z = depth[v, u]
-			cam_coords[v][u][:3] = (x, y, z)
 
-	particle_pos = pyflex.get_positions().reshape((-1, 4))
+	# Loop through each pixel in the image
+	# for v in range(height):
+		# for u in range(width):
+			# Apply equation in fig 3
+			# x = (u - u0) * depth[v, u] / fx
+			# y = (v - v0) * depth[v, u] / fy
+			# z = depth[v, u]
+			# cam_coords[v][u][:3] = (x, y, z)
+
+	# Vectorized version
+	pixel_coords = pixel_coord_np(width, height)  # [3, npoints]
+	u = pixel_coords[0, :]
+	v = pixel_coords[1, :]
+	cam_coords[v, u, 0] = (u - u0) * depth[v, u] / fx
+	cam_coords[v, u, 1] = (v - v0) * depth[v, u] / fy
+	cam_coords[v, u, 2] = depth[v, u]
+
+	# particle_pos = pyflex.get_positions().reshape((-1, 4))
 	print('cloth pixels: ', np.count_nonzero(depth))
 	print("cloth particle num: ", pyflex.get_n_particles())
 
@@ -107,28 +136,32 @@ def get_world_coords(rgb, depth, env):
 	#             cv2.waitKey()
 	#             cnt += 1
 
-	# from cam coord to world coord
-	cam_x, cam_y, cam_z = env.camera_params['default_camera']['pos'][0], env.camera_params['default_camera']['pos'][1], env.camera_params['default_camera']['pos'][2]
-	cam_x_angle, cam_y_angle, cam_z_angle = env.camera_params['default_camera']['angle'][0], env.camera_params['default_camera']['angle'][1], env.camera_params['default_camera']['angle'][2]
+	extrinsic_matrix = get_extrinsic_matrix(env)
 
-	# get rotation matrix: from world to camera
-	matrix1 = get_rotation_matrix(- cam_x_angle, [0, 1, 0]) 
-	# matrix2 = get_rotation_matrix(- cam_y_angle - np.pi, [np.cos(cam_x_angle), 0, np.sin(cam_x_angle)])
-	matrix2 = get_rotation_matrix(- cam_y_angle - np.pi, [1, 0, 0])
-	rotation_matrix = matrix2 @ matrix1
+	# # from cam coord to world coord
+	# cam_x, cam_y, cam_z = env.camera_params['default_camera']['pos'][0], env.camera_params['default_camera']['pos'][1], env.camera_params['default_camera']['pos'][2]
+	# # cam_x, cam_z, cam_y = env.camera_params['default_camera']['pos'][0], env.camera_params['default_camera']['pos'][1], env.camera_params['default_camera']['pos'][2]
+	# cam_x_angle, cam_y_angle, cam_z_angle = env.camera_params['default_camera']['angle'][0], env.camera_params['default_camera']['angle'][1], env.camera_params['default_camera']['angle'][2]
+	# # cam_x_angle, cam_z_angle, cam_y_angle = env.camera_params['default_camera']['angle'][0], env.camera_params['default_camera']['angle'][1], env.camera_params['default_camera']['angle'][2]
+
+	# # get rotation matrix: from world to camera
+	# matrix1 = get_rotation_matrix(- cam_x_angle, [0, 1, 0]) 
+	# # matrix2 = get_rotation_matrix(- cam_y_angle - np.pi, [np.cos(cam_x_angle), 0, np.sin(cam_x_angle)])
+	# matrix2 = get_rotation_matrix(- cam_y_angle - np.pi, [1, 0, 0])
+	# rotation_matrix = matrix2 @ matrix1
 	
-	# get translation matrix: from world to camera
-	translation_matrix = np.zeros((4, 4))
-	translation_matrix[0][0] = 1
-	translation_matrix[1][1] = 1
-	translation_matrix[2][2] = 1
-	translation_matrix[3][3] = 1
-	translation_matrix[0][3] = - cam_x
-	translation_matrix[1][3] = - cam_y
-	translation_matrix[2][3] = - cam_z
+	# # get translation matrix: from world to camera
+	# translation_matrix = np.zeros((4, 4))
+	# translation_matrix[0][0] = 1
+	# translation_matrix[1][1] = 1
+	# translation_matrix[2][2] = 1
+	# translation_matrix[3][3] = 1
+	# translation_matrix[0][3] = - cam_x
+	# translation_matrix[1][3] = - cam_y
+	# translation_matrix[2][3] = - cam_z
 
 	# debug: from world to camera
-	cloth_x, cloth_y = env.current_config['ClothSize'][0], env.current_config['ClothSize'][1]
+	# cloth_x, cloth_y = env.current_config['ClothSize'][0], env.current_config['ClothSize'][1]
 	# cnt = 0
 	# for u in range(height):
 	#     for v in range(width):
@@ -146,7 +179,8 @@ def get_world_coords(rgb, depth, env):
 
 	# convert the camera coordinate back to the world coordinate using the rotation and translation matrix
 	cam_coords = cam_coords.reshape((-1, 4)).transpose() # 4 x (height x width)
-	world_coords = np.linalg.inv(rotation_matrix @ translation_matrix) @ cam_coords # 4 x (height x width)
+	# world_coords = np.linalg.inv(rotation_matrix @ translation_matrix) @ cam_coords # 4 x (height x width)
+	world_coords = np.linalg.inv(extrinsic_matrix) @ cam_coords # 4 x (height x width)
 	world_coords = world_coords.transpose().reshape((height, width, 4))
 
 	# roughly check the final world coordinate with the actual coordinate
