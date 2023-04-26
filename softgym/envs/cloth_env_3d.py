@@ -10,7 +10,7 @@ from softgym.utils.gemo_utils import *
 
 def get_visible_idxs(particle_pos, depth, extrinsic_matrix, zthresh=0.01):
     # project particle_pos into depth image coordinates
-    visible_idxs = []
+    visible_idxs, hidden_idxs = [], []
     height, width = depth.shape
     K = intrinsic_from_fov(height, width, 45) # the fov is 90 degrees
     for i, pos in enumerate(particle_pos):
@@ -40,8 +40,8 @@ def get_visible_idxs(particle_pos, depth, extrinsic_matrix, zthresh=0.01):
             # otherwise, check the next ring of pixels
             # if none of them are nonzero, then the point is not visible
             found = False
-            for du in range(-1, 2):
-                for dv in range(-1, 2):
+            for du in range(-5, 5):
+                for dv in range(-5, 5):
                     if depth[v + dv, u + du] != 0:
                         u += du
                         v += dv
@@ -53,8 +53,10 @@ def get_visible_idxs(particle_pos, depth, extrinsic_matrix, zthresh=0.01):
         zdiff = np.abs(depth[v, u] - z)
         if zdiff < zthresh:
             visible_idxs.append(i)
+        else:
+            hidden_idxs.append(i)
 
-    return visible_idxs
+    return visible_idxs, hidden_idxs
 
 class ClothEnv3D(FlexEnv):
     def __init__(
@@ -184,13 +186,13 @@ class ClothEnv3D(FlexEnv):
             self.camera_params["default_camera"]["width"],
             4,
         )
-        # rgb = rgb[::-1, :, :]  # reverse the height dimension
+        rgb = rgb[::-1, :, :]  # reverse the height dimension
         rgb = rgb[:, :, :3]
         depth = np.array(depth).reshape(
             self.camera_params["default_camera"]["height"],
             self.camera_params["default_camera"]["width"],
         )
-        # depth = depth[::-1, :]  # reverse the height dimension
+        depth = depth[::-1, :]  # reverse the height dimension
         depth[depth >= 999] = 0  # use 0 instead of 999 for null
         return rgb, depth
 
@@ -215,13 +217,9 @@ class ClothEnv3D(FlexEnv):
 
     def get_observations(self, cloth_only=True):
         rgb_cloth, depth_cloth = self._get_rgbd(cloth_only=True)
-        rgb_cloth = rgb_cloth[::-1, :, :]  # reverse the height dimension
-        depth_cloth = depth_cloth[::-1, :]  # reverse the height dimension
         rgb, depth = self._get_rgbd(cloth_only=cloth_only)
-        rgb = rgb[::-1, :, :]  # reverse the height dimension
-        depth = depth[::-1, :]  # reverse the height dimension
         object_pcd_points = self._get_cloud()
-        visible_idxs = get_visible_idxs(object_pcd_points, depth_cloth, self.extrinsic_matrix)
+        visible_idxs, hidden_idxs = get_visible_idxs(object_pcd_points, depth_cloth, self.extrinsic_matrix)
         
         # make a plotly plot with the observable idxs
         if False:
@@ -264,7 +262,8 @@ class ClothEnv3D(FlexEnv):
             "poke_idx": 0,
             "cloth_corners": object_pcd_points[self.corner_idxs],
             "cloth_edges": object_pcd_points[self.edge_idxs],
-            "visible_idxs": visible_idxs
+            "visible_idxs": visible_idxs,
+            "hidden_idxs": hidden_idxs,
         }
         return obs
 
