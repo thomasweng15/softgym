@@ -289,12 +289,17 @@ class ClothEnv3D(FlexEnv):
         )
         pyflex.set_scene(env_idx, scene_params, 0)
 
-    def reset(self):
+    def reset(self, start_state=None, goal_state=None):
         self.set_scene()
         self.particle_num = pyflex.get_n_particles()
         self.prev_reward = 0.0
         self.time_step = 0
-        if self.starts_list != []:
+        if start_state != None:
+            reset_state = np.load(start_state, allow_pickle=True)
+            reset_state = np.concatenate([reset_state, np.ones([reset_state.shape[0], 1])], axis=1)
+            pyflex.set_positions(reset_state)
+            pyflex.step()
+        elif self.starts_list != []:
             reset_state = self._sample_cloth_pose(self.starts_list)
             reset_state = np.concatenate([reset_state, np.ones([reset_state.shape[0], 1])], axis=1)
             pyflex.set_positions(reset_state)
@@ -307,7 +312,10 @@ class ClothEnv3D(FlexEnv):
         # if self.recording:
             # self.video_frames.append(self.render(mode="rgb_array"))
 
-        if self.goals_list != []:
+        if goal_state != None:
+            goal_points = np.load(goal_state, allow_pickle=True)
+            self.goal_pcd_points = goal_points
+        elif self.goals_list != []:
             self.goal_pcd_points = self._sample_cloth_pose(self.goals_list)
 
         obs = self.get_observations(cloth_only=False)
