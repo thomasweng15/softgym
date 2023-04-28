@@ -31,6 +31,11 @@ def get_visible_idxs(particle_pos, depth, extrinsic_matrix, zthresh=0.01):
         u = int(np.rint(u))
         v = int(np.rint(v))
 
+        # Check if points are out of bounds
+        if u < 0 or u >= width or v < 0 or v >= height:
+            hidden_idxs.append(i)
+            continue
+
         # depth at v, u can be 0 due to floating point inaccuracy
         # but this value would never be encountered in a real projection
         # as 0 corresponds to a non cloth pixel
@@ -42,6 +47,9 @@ def get_visible_idxs(particle_pos, depth, extrinsic_matrix, zthresh=0.01):
             found = False
             for du in range(-5, 5):
                 for dv in range(-5, 5):
+                    if u + du < 0 or u + du >= width or v + dv < 0 or v + dv >= height:
+                        continue
+                    
                     if depth[v + dv, u + du] != 0:
                         u += du
                         v += dv
