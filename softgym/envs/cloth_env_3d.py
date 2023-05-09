@@ -80,6 +80,7 @@ class ClothEnv3D(FlexEnv):
         wait_steps=20,
         planar_action=True,
         max_action_scale = [0.125, 0.125, 0.125],
+        use_subgoals=False,
         **kwargs
     ):
         self.cloth_particle_radius = particle_radius
@@ -92,6 +93,7 @@ class ClothEnv3D(FlexEnv):
         self.wait_steps = wait_steps
         self.planar_action = planar_action
         self.max_action_scale = max_action_scale # x z y 
+        self.use_subgoals = use_subgoals
         super().__init__(headless=headless, **kwargs)
 
         # cloth shape
@@ -122,7 +124,7 @@ class ClothEnv3D(FlexEnv):
     def _sample_cloth_pose(self, pose_list):
         poses_path = random.sample(pose_list, 1)[0]
         pcd_points = np.load(poses_path, allow_pickle=True)
-        return pcd_points
+        return pcd_points, poses_path
 
     def get_default_config(self):
         particle_radius = self.cloth_particle_radius
@@ -302,13 +304,28 @@ class ClothEnv3D(FlexEnv):
         self.particle_num = pyflex.get_n_particles()
         self.prev_reward = 0.0
         self.time_step = 0
+        
+        if goal_state != None:
+            goal_points = np.load(goal_state, allow_pickle=True)
+            self.goal_pcd_points = goal_points
+        elif self.goals_list != []:
+            self.goal_pcd_points, goal_path = self._sample_cloth_pose(self.goals_list)
+        else:
+            self._set_to_flat()
+            self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
+
         if start_state != None:
             reset_state = np.load(start_state, allow_pickle=True)
             reset_state = np.concatenate([reset_state, np.ones([reset_state.shape[0], 1])], axis=1)
             pyflex.set_positions(reset_state)
             pyflex.step()
         elif self.starts_list != []:
-            reset_state = self._sample_cloth_pose(self.starts_list)
+            reset_state, _ = self._sample_cloth_pose(self.starts_list)
+            reset_state = np.concatenate([reset_state, np.ones([reset_state.shape[0], 1])], axis=1)
+            pyflex.set_positions(reset_state)
+            pyflex.step()
+        elif self.goals_list != [] and self.use_subgoals: # folding goal with subgoals
+            reset_state = np.load(Path(goal_path).parent / 'prev_object_pcd.npy', allow_pickle=True)
             reset_state = np.concatenate([reset_state, np.ones([reset_state.shape[0], 1])], axis=1)
             pyflex.set_positions(reset_state)
             pyflex.step()
@@ -320,14 +337,6 @@ class ClothEnv3D(FlexEnv):
         # if self.recording:
             # self.video_frames.append(self.render(mode="rgb_array"))
 
-        if goal_state != None:
-            goal_points = np.load(goal_state, allow_pickle=True)
-            self.goal_pcd_points = goal_points
-        elif self.goals_list != []:
-            self.goal_pcd_points = self._sample_cloth_pose(self.goals_list)
-        else:
-            self._set_to_flat()
-            self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
 
         obs = self.get_observations(cloth_only=False)
 
