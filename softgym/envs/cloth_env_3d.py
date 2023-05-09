@@ -325,6 +325,9 @@ class ClothEnv3D(FlexEnv):
             self.goal_pcd_points = goal_points
         elif self.goals_list != []:
             self.goal_pcd_points = self._sample_cloth_pose(self.goals_list)
+        else:
+            self._set_to_flat()
+            self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
 
         obs = self.get_observations(cloth_only=False)
 
