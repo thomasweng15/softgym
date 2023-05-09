@@ -75,12 +75,12 @@ class ClothEnv3D(FlexEnv):
         success_threshold=0.003,
         headless=False,
         record=False,
-        starts_list=[],
-        goals_list=[],
+        states_list=[],
         wait_steps=20,
         planar_action=True,
         max_action_scale = [0.125, 0.125, 0.125],
         use_subgoals=False,
+        fold_unfold_ratio=0,
         **kwargs
     ):
         self.cloth_particle_radius = particle_radius
@@ -88,12 +88,12 @@ class ClothEnv3D(FlexEnv):
         self.success_threshold = success_threshold
         self.headless = headless
         self.record = record
-        self.starts_list = starts_list
-        self.goals_list = goals_list
+        self.states_list = states_list
         self.wait_steps = wait_steps
         self.planar_action = planar_action
         self.max_action_scale = max_action_scale # x z y 
         self.use_subgoals = use_subgoals
+        self.fold_unfold_ratio = fold_unfold_ratio
         super().__init__(headless=headless, **kwargs)
 
         # cloth shape
@@ -299,46 +299,77 @@ class ClothEnv3D(FlexEnv):
         )
         pyflex.set_scene(env_idx, scene_params, 0)
 
+    def set_pyflex_positions(self, positions):
+        if positions.shape[1] == 3: 
+            positions = np.concatenate([positions, np.ones([positions.shape[0], 1])], axis=1)
+        pyflex.set_positions(positions)
+        pyflex.step()
+
     def reset(self, start_state=None, goal_state=None):
         self.set_scene()
         self.particle_num = pyflex.get_n_particles()
         self.prev_reward = 0.0
         self.time_step = 0
-        
-        if goal_state != None:
-            goal_points = np.load(goal_state, allow_pickle=True)
-            self.goal_pcd_points = goal_points
-        elif self.goals_list != []:
-            self.goal_pcd_points, goal_path = self._sample_cloth_pose(self.goals_list)
-        else:
-            self._set_to_flat()
-            self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
 
-        if start_state != None:
-            reset_state = np.load(start_state, allow_pickle=True)
-            reset_state = np.concatenate([reset_state, np.ones([reset_state.shape[0], 1])], axis=1)
-            pyflex.set_positions(reset_state)
-            pyflex.step()
-        elif self.starts_list != []:
-            reset_state, _ = self._sample_cloth_pose(self.starts_list)
-            reset_state = np.concatenate([reset_state, np.ones([reset_state.shape[0], 1])], axis=1)
-            pyflex.set_positions(reset_state)
-            pyflex.step()
-        elif self.goals_list != [] and self.use_subgoals: # folding goal with subgoals
-            reset_state = np.load(Path(goal_path).parent / 'prev_object_pcd.npy', allow_pickle=True)
-            reset_state = np.concatenate([reset_state, np.ones([reset_state.shape[0], 1])], axis=1)
-            pyflex.set_positions(reset_state)
-            pyflex.step()
-        else:
-            self._set_to_flat()
+        # if start state and goal state are both specified,
+        # then load those states
+        if goal_state != None and start_state != None:
+            self.goal_pcd_points = np.load(goal_state, allow_pickle=True)
+            self.set_pyflex_positions(np.load(start_state, allow_pickle=True))
+        else: # otherwise, sample a start state and goal state
+            prob = np.random.random()
+            if prob < self.fold_unfold_ratio: # load folding goal
+                self.goal_pcd_points, goal_path = self._sample_cloth_pose(self.states_list)
+                if self.use_subgoals: # load start state as to previous pose
+                    reset_state = np.load(Path(goal_path).parent / 'prev_object_pcd.npy', allow_pickle=True)
+                    self.set_pyflex_positions(reset_state)
+                else: # initialize to flat
+                    self._set_to_flat()
+            else: # load unfolding goal
+                self._set_to_flat()
+                self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
+                reset_state, _ = self._sample_cloth_pose(self.states_list)
+                self.set_pyflex_positions(reset_state)
+
         if hasattr(self, "action_tool"):
             self.action_tool.reset([0, 0.1, 0])
             self._set_picker_pos(self.reset_pos)
         # if self.recording:
             # self.video_frames.append(self.render(mode="rgb_array"))
 
-
         obs = self.get_observations(cloth_only=False)
+
+        # plot start and goal states in plotly
+        if False:
+            import plotly.graph_objects as go
+            fig = go.Figure(data=[
+                go.Scatter3d(
+                x=obs['object_pcd_points'][:, 0],
+                y=obs['object_pcd_points'][:, 2],
+                z=obs['object_pcd_points'][:, 1],
+                mode='markers',
+                marker=dict(
+                    size=5,
+                    color='blue',
+                    opacity=0.8
+                    )
+                ),
+                go.Scatter3d(
+                x=obs['goal_pcd_points'][:, 0],
+                y=obs['goal_pcd_points'][:, 2],
+                z=obs['goal_pcd_points'][:, 1],
+                mode='markers',
+                marker=dict(
+                    size=5,
+                    color='red',
+                    opacity=0.8
+                    )
+                )
+            ])
+            fig.update_layout(scene_zaxis_range=[0, 0.5])
+            fig.update_layout(scene_xaxis_range=[-0.3, 0.3])
+            fig.update_layout(scene_yaxis_range=[-0.3, 0.7])
+            fig.show()
 
         return obs
 
