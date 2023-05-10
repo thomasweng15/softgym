@@ -313,10 +313,10 @@ class ClothEnv3D(FlexEnv):
 
         # if start state and goal state are both specified,
         # then load those states
-        if goal_state != None and start_state != None:
+        if goal_state is not None and start_state is not None:
             self.goal_pcd_points = np.load(goal_state, allow_pickle=True)
             self.set_pyflex_positions(np.load(start_state, allow_pickle=True))
-        else: # otherwise, sample a start state and goal state
+        elif self.states_list is not None: # or, sample a start state and goal state
             prob = np.random.random()
             if prob < self.fold_unfold_ratio: # load folding goal
                 self.goal_pcd_points, goal_path = self._sample_cloth_pose(self.states_list)
@@ -330,6 +330,8 @@ class ClothEnv3D(FlexEnv):
                 self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
                 reset_state, _ = self._sample_cloth_pose(self.states_list)
                 self.set_pyflex_positions(reset_state)
+        else: # otherwise, just set to flat
+            self._set_to_flat()
 
         if hasattr(self, "action_tool"):
             self.action_tool.reset([0, 0.1, 0])
