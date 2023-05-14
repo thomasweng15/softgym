@@ -75,12 +75,13 @@ class ClothEnv3D(FlexEnv):
         success_threshold=0.003,
         headless=False,
         record=False,
-        states_list=[],
+        states_list=None,
         wait_steps=20,
         planar_action=True,
         max_action_scale = [0.125, 0.125, 0.125],
         use_subgoals=False,
         fold_unfold_ratio=0,
+        cached_states_path=None,
         **kwargs
     ):
         self.cloth_particle_radius = particle_radius
@@ -95,6 +96,9 @@ class ClothEnv3D(FlexEnv):
         self.use_subgoals = use_subgoals
         self.fold_unfold_ratio = fold_unfold_ratio
         super().__init__(headless=headless, **kwargs)
+
+        if cached_states_path is not None and self.use_cached_states:
+            self.get_cached_configs_and_states(cached_states_path, self.num_variations)
 
         # cloth shape
         self.config = self.get_default_config()
@@ -459,6 +463,66 @@ class ClothEnv3D(FlexEnv):
             action_unscaled[1] = (action_unscaled[1] / self.max_action_scale[1]) * 2 - 1 # rescaled [0, max] to [-1, 1]
             action_unscaled[2] /= self.max_action_scale[2]
         return action_unscaled
+
+    def flip_cloth(self):
+        """Flip the cloth mesh and let it settle before returning an observation"""
+        # get cloth positions
+        cloth_pos = pyflex.get_positions().reshape(-1, 4)
+        cloth_pos_rot = cloth_pos[:, [0, 2, 1]] # x z y -> x y z
+
+        # # create a transformation matrix rotating 180 degrees about the y axis
+        orig_to_rot_T = get_rotation_matrix(np.deg2rad(180), [0, 1, 0])
+        orig_to_rot_T[:3, 3] = [0, 0, 0.02]
+
+        # # transform cloth
+        cloth_pos_rot = np.concatenate([cloth_pos_rot, np.ones([cloth_pos_rot.shape[0], 1])], axis=1)
+        cloth_pos_rot = (orig_to_rot_T @ cloth_pos_rot.T).T
+
+        # plotly 3D plot to show cloth_pos_rot
+        if False:
+            import plotly.graph_objects as go
+            fig = go.Figure(data=[
+                go.Scatter3d(
+                x=cloth_pos_rot[:, 0],
+                y=cloth_pos_rot[:, 1],
+                z=cloth_pos_rot[:, 2],
+                mode='markers',
+                name="rotated",
+                marker=dict(
+                    size=5,
+                    color='blue',
+                    opacity=0.8
+                    )
+                ),
+                go.Scatter3d(
+                x=cloth_pos[:, 0],
+                y=cloth_pos[:, 1],
+                z=cloth_pos[:, 2],
+                mode='markers',
+                name="original",
+                marker=dict(
+                    size=5,
+                    color='red',
+                    opacity=0.8
+                    )
+                )
+            ])
+            fig.update_layout(scene_zaxis_range=[-0.2, 0.5])
+            fig.update_layout(scene_xaxis_range=[-0.3, 0.3])
+            fig.update_layout(scene_yaxis_range=[-0.3, 0.3])
+            fig.show()
+
+        cloth_pos_rot = cloth_pos_rot[:, [0, 2, 1]] # x y z -> x z y
+        cloth_pos[:, :3] = cloth_pos_rot
+        self.set_pyflex_positions(cloth_pos)
+
+        for i in range(100):
+            pyflex.step()
+
+        # get observations
+        obs = self.get_observations(cloth_only=False)
+
+        return obs
 
     def _get_info(self):
         return {}
