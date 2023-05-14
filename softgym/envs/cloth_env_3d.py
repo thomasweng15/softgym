@@ -274,8 +274,8 @@ class ClothEnv3D(FlexEnv):
             "goal_pcd_points": self.goal_pcd_points,
             "action_location_score": 0.,
             "poke_idx": 0,
-            "cloth_corners": object_pcd_points[self.corner_idxs],
-            "cloth_edges": object_pcd_points[self.edge_idxs],
+            # "cloth_corners": object_pcd_points[self.corner_idxs],
+            # "cloth_edges": object_pcd_points[self.edge_idxs],
             "visible_idxs": visible_idxs,
             "hidden_idxs": hidden_idxs,
         }
