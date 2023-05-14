@@ -309,7 +309,7 @@ class ClothEnv3D(FlexEnv):
         pyflex.set_positions(positions)
         pyflex.step()
 
-    def reset(self, start_state=None, goal_state=None):
+    def reset(self, flip_cloth=False, start_state=None, goal_state=None):
         self.set_scene()
         self.particle_num = pyflex.get_n_particles()
         self.prev_reward = 0.0
@@ -324,16 +324,26 @@ class ClothEnv3D(FlexEnv):
             prob = np.random.random()
             if prob < self.fold_unfold_ratio: # load folding goal
                 self.goal_pcd_points, goal_path = self._sample_cloth_pose(self.states_list)
-                if self.use_subgoals: # load start state as to previous pose
+                if self.use_subgoals: # load start state as previous pose
                     reset_state = np.load(Path(goal_path).parent / 'prev_object_pcd.npy', allow_pickle=True)
-                    self.set_pyflex_positions(reset_state)
-                else: # initialize to flat
-                    self._set_to_flat()
+                else:
+                    reset_state = self._get_flat_pos()
+                self.set_pyflex_positions(reset_state)
             else: # load unfolding goal
                 self._set_to_flat()
                 self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
                 reset_state, _ = self._sample_cloth_pose(self.states_list)
-                self.set_pyflex_positions(reset_state)
+
+                if flip_cloth: 
+                    self.goal_pcd_points = self._rotate_positions(self.goal_pcd_points)
+                    self.set_pyflex_positions(reset_state)
+                    reset_state = self._rotate_positions(reset_state)
+                    self.set_pyflex_positions(reset_state)
+                    max_z = reset_state[:, 1].max()
+                    for i in range(int(max_z / 0.003) + 1):
+                        pyflex.step()
+                else:
+                    self.set_pyflex_positions(reset_state)
         else: # otherwise, just set to flat
             self._set_to_flat()
 
@@ -464,19 +474,26 @@ class ClothEnv3D(FlexEnv):
             action_unscaled[2] /= self.max_action_scale[2]
         return action_unscaled
 
+    def _rotate_positions(self, cloth_pos):
+        max_z = cloth_pos[:, 1].max()
+        cloth_pos_rot = cloth_pos[:, [0, 2, 1]] # x z y -> x y z
+
+        # create a transformation matrix rotating 180 degrees about the y axis
+        orig_to_rot_T = get_rotation_matrix(np.deg2rad(180), [0, 1, 0])
+        orig_to_rot_T[:3, 3] = [0, 0, max_z+0.001]
+
+        # transform cloth
+        cloth_pos_rot = np.concatenate([cloth_pos_rot, np.ones([cloth_pos_rot.shape[0], 1])], axis=1)
+        cloth_pos_rot = (orig_to_rot_T @ cloth_pos_rot.T).T
+        cloth_pos_rot = cloth_pos_rot[:, [0, 2, 1]] # x y z -> x z y
+        cloth_pos[:, :3] = cloth_pos_rot[:, :3]
+        return cloth_pos
+        
     def flip_cloth(self):
         """Flip the cloth mesh and let it settle before returning an observation"""
         # get cloth positions
         cloth_pos = pyflex.get_positions().reshape(-1, 4)
-        cloth_pos_rot = cloth_pos[:, [0, 2, 1]] # x z y -> x y z
-
-        # # create a transformation matrix rotating 180 degrees about the y axis
-        orig_to_rot_T = get_rotation_matrix(np.deg2rad(180), [0, 1, 0])
-        orig_to_rot_T[:3, 3] = [0, 0, 0.02]
-
-        # # transform cloth
-        cloth_pos_rot = np.concatenate([cloth_pos_rot, np.ones([cloth_pos_rot.shape[0], 1])], axis=1)
-        cloth_pos_rot = (orig_to_rot_T @ cloth_pos_rot.T).T
+        cloth_pos_rot = self._rotate_positions(cloth_pos)
 
         # plotly 3D plot to show cloth_pos_rot
         if False:
@@ -512,17 +529,10 @@ class ClothEnv3D(FlexEnv):
             fig.update_layout(scene_yaxis_range=[-0.3, 0.3])
             fig.show()
 
-        cloth_pos_rot = cloth_pos_rot[:, [0, 2, 1]] # x y z -> x z y
-        cloth_pos[:, :3] = cloth_pos_rot
         self.set_pyflex_positions(cloth_pos)
 
         for i in range(100):
             pyflex.step()
-
-        # get observations
-        obs = self.get_observations(cloth_only=False)
-
-        return obs
 
     def _get_info(self):
         return {}
