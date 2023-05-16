@@ -12,7 +12,6 @@ PyFlex/bindings/build
 *.swp
 *.swo
 *.swn
-*.hdf5
 
 PyFlex/bindings/examples/tmp
 PyFlex/bindings/examples/*.avi
