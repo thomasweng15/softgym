@@ -75,8 +75,8 @@ if __name__ == "__main__":
             [0, -np.pi / 2.0, 0.0]
         )
     render_mode = 2
-    env3d = False 
-    envDrop = True
+    env3d = True
+    envDrop = False 
     if env3d:
         config = {
                 "ClothPos": [-0.15, 0.0, -0.15],
@@ -86,7 +86,7 @@ if __name__ == "__main__":
                     0.5,
                     1.0,
                 ],  # Stretch, Bend and Shear #0.8, 1., 0.9 #1.0, 1.3, 0.9
-                "mass": 0.0054,
+                "mass": 0.54,
                 "camera_name": "default_camera",
                 "camera_params": {
                     "default_camera": {
@@ -115,24 +115,47 @@ if __name__ == "__main__":
         }
     mass = config['mass']
     camera_params = config['camera_params'][config['camera_name']]
-    scene_params = np.array([*config['ClothPos'], *config['ClothSize'], *config['ClothStiff'], render_mode,
-                                 *camera_params['pos'][:], *camera_params['angle'][:], camera_params['width'], camera_params['height'], mass,
-                                 config['flip_mesh']])
     headless = False
     camera_width = 720
     camera_height = 720
     render = True
-    dataset_path = Path("/data/stirumal/datasets/cloth3d/train/Tshirt")
+    dataset_path = Path("/data/stirumal/datasets/cloth3d/train/Jumpsuit")
     idx = "0001.obj"
     mesh_path = dataset_path / idx
     vertices, faces, stretch_edges, bend_edges, shear_edges = load_cloth(mesh_path, 1.0)
-    breakpoint()
-    # pyflex.init(headless, render, camera_width, camera_height)
-    # pyflex.set_scene(0, scene_params, 0)
-    # x = 1
-    # while x < 1000:
-    #     pyflex.step()
-    #     pyflex.render()
-    #     time.sleep(0.05)
-    #     x += 1
-    # pass
+    # breakpoint()
+    env_idx = 1
+    vertices = vertices.astype(np.float32)
+    faces = faces.astype(np.float32)
+    stretch_edges = stretch_edges.astype(np.float32)
+    bend_edges = bend_edges.astype(np.float32)
+    shear_edges = shear_edges.astype(np.float32)
+    scene_params = np.array([*config['ClothPos'], 
+                             *config['ClothSize'], 
+                             *config['ClothStiff'], 
+                              render_mode,
+                             *camera_params['pos'][:], 
+                             *camera_params['angle'][:], 
+                              camera_params['width'], 
+                              camera_params['height'], 
+                              mass,
+                              config['flip_mesh'], 
+                              vertices.shape[0], 
+                              faces.shape[0],
+                              stretch_edges.shape[0],
+                              bend_edges.shape[0],
+                              shear_edges.shape[0],
+                              *vertices.reshape(-1),
+                              *faces.reshape(-1),
+                              *stretch_edges.reshape(-1),
+                              *bend_edges.reshape(-1),
+                              *shear_edges.reshape(-1)])
+    pyflex.init(headless, render, camera_width, camera_height)
+    pyflex.set_scene(env_idx, scene_params, 0)
+    x = 1
+    while x < 1000:
+        pyflex.step()
+        pyflex.render()
+        time.sleep(0.05)
+        x += 1
+    pass
