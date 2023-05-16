@@ -1,6 +1,73 @@
 import numpy as np
 import pyflex
 import time
+from pathlib import Path
+
+def load_cloth(path, scale=1.0):
+    """Load .obj of cloth mesh. Only quad-mesh is acceptable!
+    Return:
+        - vertices: ndarray, (N, 3)
+        - triangle_faces: ndarray, (S, 3)
+        - stretch_edges: ndarray, (M1, 2)
+        - bend_edges: ndarray, (M2, 2)
+        - shear_edges: ndarray, (M3, 2)
+    This function was written by Zhenjia Xu
+    email: xuzhenjia [at] cs (dot) columbia (dot) edu
+    website: https://www.zhenjiaxu.com/
+    """
+    # print("load cloth from: ", path)
+    vertices, faces = [], []
+    with open(path, 'r') as f:
+        lines = f.readlines()
+    for line in lines:
+        # 3D vertex
+        if line.startswith('v '):
+            vertices.append([float(n)
+                             for n in line.replace('v ', '').split(' ')])
+        # Face
+        elif line.startswith('f '):
+            idx = [n.split('/') for n in line.replace('f ', '').split(' ')]
+            face = [int(n[0]) - 1 for n in idx]
+            assert(len(face) == 4)
+            faces.append(face)
+
+    triangle_faces = []
+    for face in faces:
+        triangle_faces.append([face[0], face[1], face[2]])
+        triangle_faces.append([face[0], face[2], face[3]])
+
+    stretch_edges, shear_edges, bend_edges = set(), set(), set()
+
+    # Stretch & Shear
+    for face in faces:
+        stretch_edges.add(tuple(sorted([face[0], face[1]])))
+        stretch_edges.add(tuple(sorted([face[1], face[2]])))
+        stretch_edges.add(tuple(sorted([face[2], face[3]])))
+        stretch_edges.add(tuple(sorted([face[3], face[0]])))
+
+        shear_edges.add(tuple(sorted([face[0], face[2]])))
+        shear_edges.add(tuple(sorted([face[1], face[3]])))
+
+    # Bend
+    neighbours = dict()
+    for vid in range(len(vertices)):
+        neighbours[vid] = set()
+    for edge in stretch_edges:
+        neighbours[edge[0]].add(edge[1])
+        neighbours[edge[1]].add(edge[0])
+    for vid in range(len(vertices)):
+        neighbour_list = list(neighbours[vid])
+        N = len(neighbour_list)
+        for i in range(N - 1):
+            for j in range(i+1, N):
+                bend_edge = tuple(
+                    sorted([neighbour_list[i], neighbour_list[j]]))
+                if bend_edge not in shear_edges:
+                    bend_edges.add(bend_edge)
+
+    return np.array(vertices) * scale, np.array(triangle_faces),\
+        np.array(list(stretch_edges)), np.array(
+            list(bend_edges)), np.array(list(shear_edges))
 if __name__ == "__main__":
 
     particle_radius=0.00625
@@ -55,12 +122,17 @@ if __name__ == "__main__":
     camera_width = 720
     camera_height = 720
     render = True
-    pyflex.init(headless, render, camera_width, camera_height)
-    pyflex.set_scene(0, scene_params, 0)
-    x = 1
-    while x < 1000:
-        pyflex.step()
-        pyflex.render()
-        time.sleep(0.05)
-        x += 1
-    pass
+    dataset_path = Path("/data/stirumal/datasets/cloth3d/train/Tshirt")
+    idx = "0001.obj"
+    mesh_path = dataset_path / idx
+    vertices, faces, stretch_edges, bend_edges, shear_edges = load_cloth(mesh_path, 1.0)
+    breakpoint()
+    # pyflex.init(headless, render, camera_width, camera_height)
+    # pyflex.set_scene(0, scene_params, 0)
+    # x = 1
+    # while x < 1000:
+    #     pyflex.step()
+    #     pyflex.render()
+    #     time.sleep(0.05)
+    #     x += 1
+    # pass
