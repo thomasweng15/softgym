@@ -60,7 +60,6 @@ def main():
         env = normalize(SOFTGYM_ENVS[args.env_name](**env_kwargs))
         env.reset()
         frames = [env.get_image(args.img_size, args.img_size)]
-    breakpoint()
 
     for i in range(env.horizon):
         if env_name == 'ClothEnv3D':

@@ -368,13 +368,16 @@ class ClothEnv3D(FlexEnv):
         }
         return obs
 
-    def set_scene(self):
+    def set_scene(self, category = None, idx = None):
+        if category is not None and idx is not None:
+            mesh_path = self.dataset_path / (category +'/' + str(idx).zfill(4) + '.obj')
+        else:
+            idx = np.random.randint(0, len(self.mesh_input_files))
+            mesh_path = self.mesh_input_files[idx]
         render_mode = 2  # cloth
         env_idx = 1
         config = self.config
         camera_params = config["camera_params"][config["camera_name"]]
-        idx = np.random.randint(0, len(self.mesh_input_files))
-        mesh_path = self.mesh_input_files[idx]
         vertices, faces, stretch_edges, bend_edges, shear_edges = load_cloth(mesh_path, 1.0)
         vertices = vertices.astype(np.float32)
         faces = faces.astype(np.float32)
@@ -410,8 +413,8 @@ class ClothEnv3D(FlexEnv):
         pyflex.set_positions(positions)
         pyflex.step()
 
-    def reset(self, flip_cloth=False, start_state=None, goal_state=None):
-        self.set_scene()
+    def reset(self, flip_cloth=False, start_state=None, goal_state=None, category=None, idx=None):
+        self.set_scene(category=category, idx=idx)
         self.particle_num = pyflex.get_n_particles()
         self.prev_reward = 0.0
         self.time_step = 0
