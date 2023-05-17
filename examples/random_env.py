@@ -7,6 +7,7 @@ from softgym.utils.normalized_env import normalize
 from softgym.utils.visualization import save_numpy_as_gif
 import pyflex
 from matplotlib import pyplot as plt
+from pathlib import Path
 
 
 def show_depth():
@@ -48,18 +49,28 @@ def main():
     env_kwargs['render'] = True
     env_kwargs['headless'] = args.headless
 
+    env_name = args.env_name
     if not env_kwargs['use_cached_states']:
         print('Waiting to generate environment variations. May take 1 minute for each variation...')
-    env = normalize(SOFTGYM_ENVS[args.env_name](**env_kwargs))
-    env.reset()
+    
+    if env_name == 'ClothEnv3D':
+        env = SOFTGYM_ENVS[args.env_name](**env_kwargs)
+        env.reset()
+    else:
+        env = normalize(SOFTGYM_ENVS[args.env_name](**env_kwargs))
+        env.reset()
+        frames = [env.get_image(args.img_size, args.img_size)]
 
-    frames = [env.get_image(args.img_size, args.img_size)]
     for i in range(env.horizon):
-        action = env.action_space.sample()
+        if env_name == 'ClothEnv3D':
+            action = np.array([[0,0,0],[0,0,0]])
+            _, info = env.step(action)
+        else:
+            action = env.action_space.sample()
+            _, _, _, info = env.step(action, record_continuous_video=True, img_size=args.img_size)
+            frames.extend(info['flex_env_recorded_frames'])
         # By default, the environments will apply action repitition. The option of record_continuous_video provides rendering of all
         # intermediate frames. Only use this option for visualization as it increases computation.
-        _, _, _, info = env.step(action, record_continuous_video=True, img_size=args.img_size)
-        frames.extend(info['flex_env_recorded_frames'])
         if args.test_depth:
             show_depth()
 
