@@ -8,6 +8,8 @@ from softgym.envs.cloth_fold import ClothFoldEnv
 from softgym.envs.cloth_drop import ClothDropEnv
 from softgym.envs.cloth_fold_crumpled import ClothFoldCrumpledEnv
 from softgym.envs.cloth_fold_drop import ClothFoldDropEnv
+from softgym.envs.cloth_env_3d import ClothEnv3D 
+from pathlib import Path
 
 from collections import OrderedDict
 
@@ -178,6 +180,14 @@ env_arg_dict = {
         num_variations=1000,
         deterministic=False
     ),
+    "ClothEnv3D": dict(
+        dataset_path=Path("/data/stirumal/datasets/cloth3d/train/Jumpsuit"),
+        observation_mode='point_cloud',
+        action_mode='picker',
+        num_pickers=1,
+        render=True,
+        headless=True,
+    )
 }
 
 SOFTGYM_ENVS = OrderedDict({
@@ -193,4 +203,5 @@ SOFTGYM_ENVS = OrderedDict({
     'ClothFoldCrumpled': ClothFoldCrumpledEnv,
     'RopeFlatten': RopeFlattenEnv,
     'RopeConfiguration': RopeConfigurationEnv,
+    'ClothEnv3D': ClothEnv3D, 
 })

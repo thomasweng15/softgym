@@ -82,6 +82,7 @@ class ClothEnv3D(FlexEnv):
         use_subgoals=False,
         fold_unfold_ratio=0,
         cached_states_path=None,
+        dataset_path = None,
         **kwargs
     ):
         self.cloth_particle_radius = particle_radius
@@ -95,6 +96,7 @@ class ClothEnv3D(FlexEnv):
         self.max_action_scale = max_action_scale # x z y 
         self.use_subgoals = use_subgoals
         self.fold_unfold_ratio = fold_unfold_ratio
+        self.dataset_path = dataset_path
         super().__init__(headless=headless, **kwargs)
 
         if cached_states_path is not None and self.use_cached_states:
@@ -124,6 +126,8 @@ class ClothEnv3D(FlexEnv):
         self.extrinsic_matrix = get_extrinsic_matrix(self)
         self.corner_idxs = self.get_corner_idxs()
         self.edge_idxs = self.get_edge_idxs()
+        self.action_space = self.action_tool.action_space
+        self.observation_space = np.zeros(10)
 
     def _sample_cloth_pose(self, pose_list):
         poses_path = random.sample(pose_list, 1)[0]
