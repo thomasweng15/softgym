@@ -120,6 +120,7 @@ if __name__ == "__main__":
     camera_height = 720
     render = True
     dataset_path = Path("/data/stirumal/datasets/cloth3d/train/Jumpsuit")
+    breakpoint()
     idx = "0001.obj"
     mesh_path = dataset_path / idx
     vertices, faces, stretch_edges, bend_edges, shear_edges = load_cloth(mesh_path, 1.0)

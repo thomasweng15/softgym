@@ -181,7 +181,7 @@ env_arg_dict = {
         deterministic=False
     ),
     "ClothEnv3D": dict(
-        dataset_path=Path("/data/stirumal/datasets/cloth3d/train/Jumpsuit"),
+        dataset_path=Path("/data/stirumal/datasets/cloth3d/train"),
         observation_mode='point_cloud',
         action_mode='picker',
         num_pickers=1,
