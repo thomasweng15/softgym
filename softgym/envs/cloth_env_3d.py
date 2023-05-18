@@ -3,6 +3,7 @@ import pyflex
 import copy
 import random
 from pathlib import Path
+from copy import deepcopy
 from softgym.envs.cloth_env import FlexEnv
 from softgym.action_space.action_space import PickerPickPlace
 from softgym.utils.gemo_utils import *
@@ -279,11 +280,18 @@ class ClothEnv3D(FlexEnv):
         }
         return obs
 
-    def set_scene(self):
+    def set_scene(self, config=None, state=None):
         render_mode = 2  # cloth
         env_idx = 0
-        config = self.config
-        camera_params = config["camera_params"][config["camera_name"]]
+        if config is None:
+            config = self.config
+        
+        # use camera params from state if available
+        if state is not None:
+            camera_params = state["camera_params"]['default_camera']
+        else:
+            camera_params = config["camera_params"][config["camera_name"]]
+
         scene_params = np.array(
             [
                 *config["ClothPos"],
@@ -294,12 +302,16 @@ class ClothEnv3D(FlexEnv):
                 *camera_params["angle"][:],
                 camera_params["width"],
                 camera_params["height"],
-                config["mass"],
+                config["mass"] if 'mass' in config else 0.5, # 0.0054
                 config["flip_mesh"],
             ],
             dtype=np.float32,
         )
         pyflex.set_scene(env_idx, scene_params, 0)
+
+        if state is not None:
+            super().set_state(state)
+        self.current_config = deepcopy(config)
 
     def set_pyflex_positions(self, positions):
         if positions.shape[1] == 3: 
@@ -307,44 +319,51 @@ class ClothEnv3D(FlexEnv):
         pyflex.set_positions(positions)
         pyflex.step()
 
-    def reset(self, flip_cloth=False, start_state=None, goal_state=None):
-        self.set_scene()
-        self.particle_num = pyflex.get_n_particles()
-        self.prev_reward = 0.0
-        self.time_step = 0
+    def reset(self, flip_cloth=False, start_state=None, goal_state=None, config_id=None):
+        if config_id is not None: # load from cached states
+            super().reset(config_id=config_id)
+        else: # load square cloth
+            self.set_scene()
+            self.particle_num = pyflex.get_n_particles()
+            self.prev_reward = 0.0
+            self.time_step = 0
 
-        # if start state and goal state are both specified,
-        # then load those states
-        if goal_state is not None and start_state is not None:
-            self.goal_pcd_points = np.load(goal_state, allow_pickle=True)
-            self.set_pyflex_positions(np.load(start_state, allow_pickle=True))
-        elif self.states_list is not None: # or, sample a start state and goal state
-            prob = np.random.random()
-            if prob < self.fold_unfold_ratio: # load folding goal
-                self.goal_pcd_points, goal_path = self._sample_cloth_pose(self.states_list)
-                if self.use_subgoals: # load start state as previous pose
-                    reset_state = np.load(Path(goal_path).parent / 'prev_object_pcd.npy', allow_pickle=True)
-                else:
-                    reset_state = self._get_flat_pos()
-                self.set_pyflex_positions(reset_state)
-            else: # load unfolding goal
+            # if start state and goal state are both specified,
+            # then load those states
+            if goal_state is not None and start_state is not None:
+                self.goal_pcd_points = np.load(goal_state, allow_pickle=True)
+                self.set_pyflex_positions(np.load(start_state, allow_pickle=True))
+            elif self.states_list is not None: # or, sample a start state and goal state
+                prob = np.random.random()
+                if prob < self.fold_unfold_ratio: # load folding goal
+                    self.goal_pcd_points, goal_path = self._sample_cloth_pose(self.states_list)
+                    if self.use_subgoals: # load start state as previous pose
+                        reset_state = np.load(Path(goal_path).parent / 'prev_object_pcd.npy', allow_pickle=True)
+                    else:
+                        reset_state = self._get_flat_pos()
+                    self.set_pyflex_positions(reset_state)
+                else: # load unfolding goal
+                    self._set_to_flat()
+                    self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
+                    reset_state, _ = self._sample_cloth_pose(self.states_list)
+
+                    if flip_cloth: 
+                        self.goal_pcd_points = self._rotate_positions(self.goal_pcd_points)
+                        self.set_pyflex_positions(reset_state)
+                        reset_state = self._rotate_positions(reset_state)
+                        self.set_pyflex_positions(reset_state)
+                        max_z = reset_state[:, 1].max()
+                        for i in range(int(max_z / 0.003) + 1):
+                            pyflex.step()
+                    else:
+                        self.set_pyflex_positions(reset_state)
+            else: # otherwise, just set to flat
                 self._set_to_flat()
-                self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
-                reset_state, _ = self._sample_cloth_pose(self.states_list)
 
-                if flip_cloth: 
-                    self.goal_pcd_points = self._rotate_positions(self.goal_pcd_points)
-                    self.set_pyflex_positions(reset_state)
-                    reset_state = self._rotate_positions(reset_state)
-                    self.set_pyflex_positions(reset_state)
-                    max_z = reset_state[:, 1].max()
-                    for i in range(int(max_z / 0.003) + 1):
-                        pyflex.step()
-                else:
-                    self.set_pyflex_positions(reset_state)
-        else: # otherwise, just set to flat
-            self._set_to_flat()
+        obs = self._reset()
+        return obs
 
+    def _reset(self):
         if hasattr(self, "action_tool"):
             self.action_tool.reset([0, 0.1, 0])
             self._set_picker_pos(self.reset_pos)
