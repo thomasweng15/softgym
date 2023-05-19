@@ -55,7 +55,7 @@ def main():
     
     if env_name == 'ClothEnv3D':
         env = SOFTGYM_ENVS[args.env_name](**env_kwargs)
-        env.reset()
+        env.reset(start_flat=False)
     else:
         env = normalize(SOFTGYM_ENVS[args.env_name](**env_kwargs))
         env.reset()

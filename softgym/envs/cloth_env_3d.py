@@ -1,3 +1,4 @@
+import h5py
 import numpy as np
 import pyflex
 import copy
@@ -149,6 +150,9 @@ class ClothEnv3D(FlexEnv):
         fold_unfold_ratio=0,
         cached_states_path=None,
         dataset_path = None,
+        dataset_name = "flingbot",
+        split = 'test',
+        categories = None,
         **kwargs
     ):
         self.cloth_particle_radius = particle_radius
@@ -194,7 +198,13 @@ class ClothEnv3D(FlexEnv):
         self.edge_idxs = self.get_edge_idxs()
         self.action_space = self.action_tool.action_space
         self.observation_space = np.zeros(10)
-        self.categories = ["Dress", 
+        
+        self.dataset_name = dataset_name
+        self.mesh_input_files = []
+        self.flat_positions = None
+        if self.dataset_name == "cloth3D":
+            if categories is None:
+                self.categories = ["Dress", 
                       "Jumpsuit", 
                       "rectangle", 
                       "Skirt",
@@ -202,12 +212,25 @@ class ClothEnv3D(FlexEnv):
                       "Top",
                       "Trousers",
                       "Tshirt"]
-        self.mesh_input_files = []
-        for category in self.categories:
-            category_path = dataset_path / category
-            category_files = list(category_path.glob("*.obj"))
-            self.mesh_input_files.extend(category_files)
-
+            else:
+                self.categories = categories
+            for category in self.categories:
+                category_path = dataset_path / category
+                category_files = list(category_path.glob("*.obj"))
+                self.mesh_input_files.extend(category_files)
+        elif self.dataset_name == "flingbot":
+            self.split = split
+            if categories is None:
+                self.categories = ["normal-rect", "large-rect", "shirt"]
+                for category in self.categories:
+                    category_path = "flingbot-"+category+'-eval.hdf5'
+                    category_path = [(dataset_path / self.split) / category_path]
+                    self.mesh_input_files.extend(category_path)
+        elif dataset_name == "clothfunnels":
+            doSomething=1
+        else:
+            raise NotImplementedError
+    
     def _sample_cloth_pose(self, pose_list):
         poses_path = random.sample(pose_list, 1)[0]
         pcd_points = np.load(poses_path, allow_pickle=True)
@@ -259,13 +282,16 @@ class ClothEnv3D(FlexEnv):
 
     def _set_to_flat(self):
         """
-        Difficult to determine what the flat pos is for a random mesh
+        Sets the cloth to a flat shape
         """
-        # curr_pos = pyflex.get_positions().reshape((-1, 4))
-        # flat_pos = self._get_flat_pos()
-        # curr_pos[:, :3] = flat_pos
-        # pyflex.set_positions(curr_pos)
-        # pyflex.step()
+        curr_pos = pyflex.get_positions().reshape((-1, 4))
+        if self.flat_positions is None:
+            flat_pos = self._get_flat_pos()
+        else:
+            flat_pos = self.flat_positions
+        curr_pos[:, :3] = flat_pos
+        pyflex.set_positions(curr_pos)
+        pyflex.step()
         pass
 
     def _set_picker_pos(self, picker_pos):
@@ -368,23 +394,59 @@ class ClothEnv3D(FlexEnv):
         }
         return obs
 
-    def set_scene(self, category = None, idx = None):
-        if category is not None and idx is not None:
-            mesh_path = self.dataset_path / (category +'/' + str(idx).zfill(4) + '.obj')
-        else:
-            idx = np.random.randint(0, len(self.mesh_input_files))
-            mesh_path = self.mesh_input_files[idx]
+    def set_scene(self, category = None, idx = None, start_flat=True):
+
         render_mode = 2  # cloth
         env_idx = 1
         config = self.config
         camera_params = config["camera_params"][config["camera_name"]]
-        vertices, faces, stretch_edges, bend_edges, shear_edges = load_cloth(mesh_path, 1.0)
-        vertices = vertices.astype(np.float32)
-        faces = faces.astype(np.float32)
-        stretch_edges = stretch_edges.astype(np.float32)
-        bend_edges = bend_edges.astype(np.float32)
-        shear_edges = shear_edges.astype(np.float32)
         mass = config['mass']
+        if self.dataset_name == "cloth3d":
+            if category is not None and idx is not None:
+                mesh_path = self.dataset_path / (category +'/' + str(idx).zfill(4) + '.obj')
+            else:
+                idx = np.random.randint(0, len(self.mesh_input_files))
+                mesh_path = self.mesh_input_files[idx]
+            vertices, faces, stretch_edges, bend_edges, shear_edges = load_cloth(mesh_path, 1.0)
+            vertices = vertices.astype(np.float32)
+            faces = faces.astype(np.float32)
+            stretch_edges = stretch_edges.astype(np.float32)
+            bend_edges = bend_edges.astype(np.float32)
+            shear_edges = shear_edges.astype(np.float32)
+            vertices_num = vertices.shape[0]
+            faces_num = faces.shape[0]
+            stretch_edges_num = stretch_edges.shape[0]
+            bend_edges_num = bend_edges.shape[0]
+            shear_edges_num = shear_edges.shape[0]
+        elif self.dataset_name == "flingbot":
+            if category and idx is not None:
+                pass
+            else:
+                idx = np.random.randint(0, 3)
+                mesh_hdf5_path = self.mesh_input_files[idx]
+                with h5py.File(mesh_hdf5_path, 'r') as file:
+                    idx = np.random.randint(0, len(file.keys()))
+                    data_dict = file[list(file.keys())[idx]] 
+                    config['ClothSize'] = data_dict['cloth_size'][:]
+                    config['ClothStiff'] = data_dict['cloth_stiff'][:]
+                    vertices = data_dict['mesh_verts'][:]
+                    if vertices.shape[0] == 0:
+                        env_idx = 0
+                    faces = data_dict['mesh_faces'][:]
+                    stretch_edges = data_dict['mesh_stretch_edges'][:]
+                    bend_edges = data_dict['mesh_bend_edges'][:]
+                    shear_edges = data_dict['mesh_shear_edges'][:]
+                    positions = data_dict['particle_pos'][:]
+                    vertices = vertices.astype(np.float32)
+                    faces = faces.astype(np.float32)
+                    stretch_edges = stretch_edges.astype(np.float32)
+                    bend_edges = bend_edges.astype(np.float32)
+                    shear_edges = shear_edges.astype(np.float32)
+                    vertices_num = vertices.shape[0] / 3
+                    faces_num = faces.shape[0] / 3
+                    stretch_edges_num = stretch_edges.shape[0] / 2
+                    bend_edges_num = bend_edges.shape[0] / 2
+                    shear_edges_num = shear_edges.shape[0] / 2
         scene_params = np.array([*config['ClothPos'], 
                                 *config['ClothSize'], 
                                 *config['ClothStiff'], 
@@ -395,17 +457,21 @@ class ClothEnv3D(FlexEnv):
                                 camera_params['height'], 
                                 mass,
                                 config['flip_mesh'], 
-                                vertices.shape[0], 
-                                faces.shape[0],
-                                stretch_edges.shape[0],
-                                bend_edges.shape[0],
-                                shear_edges.shape[0],
+                                vertices_num, 
+                                faces_num,
+                                stretch_edges_num,
+                                bend_edges_num,
+                                shear_edges_num,
                                 *vertices.reshape(-1),
                                 *faces.reshape(-1),
                                 *stretch_edges.reshape(-1),
                                 *bend_edges.reshape(-1),
                                 *shear_edges.reshape(-1)])
         pyflex.set_scene(env_idx, scene_params, 0)
+        self.flat_positions = pyflex.get_positions().reshape(-1, 4)[:, :3]
+        if not start_flat:
+            pyflex.set_positions(positions.astype(np.float32))
+
 
     def set_pyflex_positions(self, positions):
         if positions.shape[1] == 3: 
@@ -413,8 +479,8 @@ class ClothEnv3D(FlexEnv):
         pyflex.set_positions(positions)
         pyflex.step()
 
-    def reset(self, flip_cloth=False, start_state=None, goal_state=None, category=None, idx=None):
-        self.set_scene(category=category, idx=idx)
+    def reset(self, flip_cloth=False, start_state=None, goal_state=None, category=None, idx=None, start_flat=True):
+        self.set_scene(category=category, idx=idx, start_flat=start_flat)
         self.particle_num = pyflex.get_n_particles()
         self.prev_reward = 0.0
         self.time_step = 0
@@ -449,7 +515,8 @@ class ClothEnv3D(FlexEnv):
                 else:
                     self.set_pyflex_positions(reset_state)
         else: # otherwise, just set to flat
-            self._set_to_flat()
+            if start_flat:
+                self._set_to_flat()
 
         if hasattr(self, "action_tool"):
             self.action_tool.reset([0, 0.1, 0])

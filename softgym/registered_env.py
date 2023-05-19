@@ -181,12 +181,14 @@ env_arg_dict = {
         deterministic=False
     ),
     "ClothEnv3D": dict(
-        dataset_path=Path("/data/stirumal/datasets/cloth3d/train"),
+        dataset_path=Path("/data/stirumal/datasets/flingbot"),
         observation_mode='point_cloud',
         action_mode='picker',
         num_pickers=1,
         render=True,
         headless=True,
+        dataset_name = 'flingbot',
+        split = 'test'
     )
 }
 

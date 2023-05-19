@@ -18,5 +18,6 @@ PyFlex/bindings/examples/tmp
 PyFlex/bindings/examples/*.avi
 PyFlex/bindings/examples/*/
 PyFlex/bindings/examples/*.gif
+.vscode/*
 
 build/

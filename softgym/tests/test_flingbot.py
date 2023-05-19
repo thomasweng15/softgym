@@ -122,7 +122,7 @@ if __name__ == "__main__":
     render = True
 
     flingbot_shirt_path = '/home/sashank/projects/softgym/flingbot-shirt-eval.hdf5'
-    idx = 0
+    idx = 4
     with h5py.File(flingbot_shirt_path, 'r') as file:
         data_dict = file[list(file.keys())[idx]] 
         vertices = data_dict['mesh_verts'][:]
