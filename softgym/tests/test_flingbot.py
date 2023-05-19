@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pyflex
 import time
@@ -121,7 +122,7 @@ if __name__ == "__main__":
     camera_height = 720
     render = True
 
-    flingbot_shirt_path = '/home/sashank/projects/softgym/flingbot-shirt-eval.hdf5'
+    flingbot_shirt_path = os.getenv('FLINGBOT_SHIRT_PATH')
     idx = 4
     with h5py.File(flingbot_shirt_path, 'r') as file:
         data_dict = file[list(file.keys())[idx]] 

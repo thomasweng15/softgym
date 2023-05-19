@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pyflex
 import time
@@ -119,7 +120,7 @@ if __name__ == "__main__":
     camera_width = 720
     camera_height = 720
     render = True
-    dataset_path = Path("/data/stirumal/datasets/cloth3d/train/Jumpsuit")
+    dataset_path = Path(os.getenv('FLINBOT_DATASET_PATH'))
     breakpoint()
     idx = "0001.obj"
     mesh_path = dataset_path / idx
