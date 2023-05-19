@@ -150,7 +150,7 @@ class ClothEnv3D(FlexEnv):
         fold_unfold_ratio=0,
         cached_states_path=None,
         dataset_path = None,
-        dataset_name = "flingbot",
+        dataset_name = "square",
         split = 'test',
         categories = None,
         **kwargs
@@ -228,6 +228,8 @@ class ClothEnv3D(FlexEnv):
                     self.mesh_input_files.extend(category_path)
         elif dataset_name == "clothfunnels":
             doSomething=1
+        elif dataset_name == "square":
+            pass
         else:
             raise NotImplementedError
     
@@ -284,14 +286,19 @@ class ClothEnv3D(FlexEnv):
         """
         Sets the cloth to a flat shape
         """
-        curr_pos = pyflex.get_positions().reshape((-1, 4))
-        if self.flat_positions is None:
+        if self.dataset_name == 'square':
+            curr_pos = pyflex.get_positions().reshape((-1, 4))
             flat_pos = self._get_flat_pos()
-        else:
+            curr_pos[:, :3] = flat_pos
+            pyflex.set_positions(curr_pos)
+            pyflex.step()
+        elif self.dataset_name=='flingbot':
+            curr_pos = pyflex.get_positions().reshape((-1, 4))
             flat_pos = self.flat_positions
-        curr_pos[:, :3] = flat_pos
-        pyflex.set_positions(curr_pos)
-        pyflex.step()
+            curr_pos[:, :3] = flat_pos
+            pyflex.set_positions(curr_pos)
+            pyflex.step()
+
         pass
 
     def _set_picker_pos(self, picker_pos):
@@ -397,7 +404,6 @@ class ClothEnv3D(FlexEnv):
     def set_scene(self, category = None, idx = None, start_flat=True):
 
         render_mode = 2  # cloth
-        env_idx = 1
         config = self.config
         camera_params = config["camera_params"][config["camera_name"]]
         mass = config['mass']
@@ -407,6 +413,7 @@ class ClothEnv3D(FlexEnv):
             else:
                 idx = np.random.randint(0, len(self.mesh_input_files))
                 mesh_path = self.mesh_input_files[idx]
+            env_idx = 1
             vertices, faces, stretch_edges, bend_edges, shear_edges = load_cloth(mesh_path, 1.0)
             vertices = vertices.astype(np.float32)
             faces = faces.astype(np.float32)
@@ -418,7 +425,30 @@ class ClothEnv3D(FlexEnv):
             stretch_edges_num = stretch_edges.shape[0]
             bend_edges_num = bend_edges.shape[0]
             shear_edges_num = shear_edges.shape[0]
+            scene_params = np.array([*config['ClothPos'], 
+                                *config['ClothSize'], 
+                                *config['ClothStiff'], 
+                                render_mode,
+                                *camera_params['pos'][:], 
+                                *camera_params['angle'][:], 
+                                camera_params['width'], 
+                                camera_params['height'], 
+                                mass,
+                                config['flip_mesh'], 
+                                vertices_num, 
+                                faces_num,
+                                stretch_edges_num,
+                                bend_edges_num,
+                                shear_edges_num,
+                                *vertices.reshape(-1),
+                                *faces.reshape(-1),
+                                *stretch_edges.reshape(-1),
+                                *bend_edges.reshape(-1),
+                                *shear_edges.reshape(-1)])
+            pyflex.set_scene(env_idx, scene_params, 0)
+
         elif self.dataset_name == "flingbot":
+            env_idx = 1
             if category is not None:
                 if not np.any([x in category for x in ['large', 'normal', 'shirt']]):
                     raise ValueError("Invalid category")
@@ -455,7 +485,7 @@ class ClothEnv3D(FlexEnv):
                 stretch_edges_num = stretch_edges.shape[0] / 2
                 bend_edges_num = bend_edges.shape[0] / 2
                 shear_edges_num = shear_edges.shape[0] / 2
-        scene_params = np.array([*config['ClothPos'], 
+            scene_params = np.array([*config['ClothPos'], 
                                 *config['ClothSize'], 
                                 *config['ClothStiff'], 
                                 render_mode,
@@ -475,12 +505,33 @@ class ClothEnv3D(FlexEnv):
                                 *stretch_edges.reshape(-1),
                                 *bend_edges.reshape(-1),
                                 *shear_edges.reshape(-1)])
-        pyflex.set_scene(env_idx, scene_params, 0)
-        self.flat_positions = pyflex.get_positions().reshape(-1, 4)[:, :3]
-        if not start_flat:
-            pyflex.set_positions(positions.astype(np.float32))
+            pyflex.set_scene(env_idx, scene_params, 0)
+            self.flat_positions = pyflex.get_positions().reshape(-1, 4)[:, :3]
+            if not start_flat:
+                pyflex.set_positions(positions.astype(np.float32))
 
 
+        elif self.dataset_name == "square":
+            env_idx = 0
+            scene_params = np.array(
+            [
+                *config["ClothPos"],
+                *config["ClothSize"],
+                *config["ClothStiff"],
+                render_mode,
+                *camera_params["pos"][:],
+                *camera_params["angle"][:],
+                camera_params["width"],
+                camera_params["height"],
+                config["mass"] if 'mass' in config else 0.5, # 0.0054
+                config["flip_mesh"],
+            ],
+            dtype=np.float32,
+            )
+            pyflex.set_scene(env_idx, scene_params, 0)
+        else:
+            raise ValueError("Invalid dataset name")
+        
     def set_pyflex_positions(self, positions):
         if positions.shape[1] == 3: 
             positions = np.concatenate([positions, np.ones([positions.shape[0], 1])], axis=1)
@@ -523,8 +574,11 @@ class ClothEnv3D(FlexEnv):
                 else:
                     self.set_pyflex_positions(reset_state)
         else: # otherwise, just set to flat
-            if start_flat:
+            if self.dataset_name == "square":
                 self._set_to_flat()
+            elif self.dataset_name == "flingbot":
+                if start_flat:
+                    self._set_to_flat()
 
         if hasattr(self, "action_tool"):
             self.action_tool.reset([0, 0.1, 0])

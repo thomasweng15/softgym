@@ -12,6 +12,7 @@ from softgym.envs.cloth_env_3d import ClothEnv3D
 from pathlib import Path
 
 from collections import OrderedDict
+import os
 
 env_arg_dict = {
     'PourWater': {'observation_mode': 'cam_rgb',
@@ -180,8 +181,8 @@ env_arg_dict = {
         num_variations=1000,
         deterministic=False
     ),
-    "ClothEnv3D": dict(
-        dataset_path=Path("/data/stirumal/datasets/flingbot"),
+    "flingbot": dict(
+        dataset_path=Path(os.getenv('FLINGBOT_DATASET_PATH')),
         observation_mode='point_cloud',
         action_mode='picker',
         num_pickers=1,
@@ -189,7 +190,15 @@ env_arg_dict = {
         headless=True,
         dataset_name = 'flingbot',
         split = 'test'
-    )
+    ),
+    "square": dict(
+        observation_mode='point_cloud',
+        action_mode='picker',
+        num_pickers=1,
+        render=True,
+        headless=True,
+        dataset_name = 'square',
+     )
 }
 
 SOFTGYM_ENVS = OrderedDict({
@@ -206,4 +215,6 @@ SOFTGYM_ENVS = OrderedDict({
     'RopeFlatten': RopeFlattenEnv,
     'RopeConfiguration': RopeConfigurationEnv,
     'ClothEnv3D': ClothEnv3D, 
+    'flingbot': ClothEnv3D, 
+    'square': ClothEnv3D, 
 })
