@@ -100,6 +100,9 @@ class ClothEnv3D(FlexEnv):
 
         if cached_states_path is not None and self.use_cached_states:
             self.get_cached_configs_and_states(cached_states_path, self.num_variations)
+            # don't load shape pos due to different picker
+            for i in range(len(self.cached_init_states)):
+                self.cached_init_states[i]['shape_pos'] = np.zeros((self.num_pickers, self.dim_shape_state))
 
         # cloth shape
         self.config = self.get_default_config()
@@ -118,8 +121,8 @@ class ClothEnv3D(FlexEnv):
             collect_steps=False,
         )
         self.action_tool.delta_move = 0.005
-        self.reset_act = np.array([0.0, 0.1, -0.6, 0.0, 0.0, 0.1, -0.6, 0.0])
-        self.reset_pos = np.array([0.0, 0.1, -0.6, 0.0, 0.1, -0.6])
+        self.reset_act = np.array([0.0, 0.1, -0.6, 0.0] * self.num_pickers)
+        self.reset_pos = np.array([0.0, 0.1, -0.6] * self.num_pickers)
 
         self.goal_pcd_points = None
         self.extrinsic_matrix = get_extrinsic_matrix(self)
@@ -162,7 +165,10 @@ class ClothEnv3D(FlexEnv):
         return config
 
     def _get_flat_pos(self):
-        dimx, dimy = self.config["ClothSize"]
+        if self.current_config is not None:
+            dimx, dimy = self.current_config["ClothSize"]
+        else:
+            dimx, dimy = self.config["ClothSize"]
         x = np.array([i * self.cloth_particle_radius for i in range(dimx)])
         y = np.array([i * self.cloth_particle_radius for i in range(dimy)])
         x = x - np.mean(x)
@@ -319,9 +325,23 @@ class ClothEnv3D(FlexEnv):
         pyflex.set_positions(positions)
         pyflex.step()
 
-    def reset(self, flip_cloth=False, start_state=None, goal_state=None, config_id=None):
-        if config_id is not None: # load from cached states
+    def reset(self, flip_cloth=False, start_state=None, goal_state=None, config_id=None, set_to_flat=False, end_record=True):
+        if self.recording and end_record:
+            self.end_record()
+
+        if set_to_flat:
+            if config_id is None:
+                raise ValueError("config_id must be specified if set_to_flat is True")
             super().reset(config_id=config_id)
+            self._set_to_flat()
+            self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
+            obs = self.get_observations(cloth_only=False)
+            return obs
+
+        if config_id is not None: # load initial state from cached states
+            # Must be called after set to flat for eval
+            obs = super().reset(config_id=config_id)
+            return obs
         else: # load square cloth
             self.set_scene()
             self.particle_num = pyflex.get_n_particles()
@@ -359,9 +379,10 @@ class ClothEnv3D(FlexEnv):
                         self.set_pyflex_positions(reset_state)
             else: # otherwise, just set to flat
                 self._set_to_flat()
+                self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
 
-        obs = self._reset()
-        return obs
+            obs = self._reset()
+            return obs
 
     def _reset(self):
         if hasattr(self, "action_tool"):

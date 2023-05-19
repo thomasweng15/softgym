@@ -148,7 +148,8 @@ class FlexEnv(gym.Env):
         self.recording = False
         if video_path is not None:
             save_numpy_as_gif(np.array(self.video_frames), video_path, **kwargs)
-        del self.video_frames
+        self.video_frames = []
+        # del self.video_frames
 
     def reset(self, config=None, initial_state=None, config_id=None):
         if config is None:
