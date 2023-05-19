@@ -419,34 +419,42 @@ class ClothEnv3D(FlexEnv):
             bend_edges_num = bend_edges.shape[0]
             shear_edges_num = shear_edges.shape[0]
         elif self.dataset_name == "flingbot":
-            if category and idx is not None:
-                pass
+            if category is not None:
+                if not np.any([x in category for x in ['large', 'normal', 'shirt']]):
+                    raise ValueError("Invalid category")
+                id_category = 0
+                while id_category < len(self.mesh_input_files):
+                    if category in str(self.mesh_input_files[id_category]):
+                        break
+                    id_category += 1
             else:
-                idx = np.random.randint(0, 3)
-                mesh_hdf5_path = self.mesh_input_files[idx]
-                with h5py.File(mesh_hdf5_path, 'r') as file:
+                id_category = np.random.randint(0, 3)
+            mesh_hdf5_path = self.mesh_input_files[id_category]
+            with h5py.File(mesh_hdf5_path, 'r') as file:
+                if idx is None:
                     idx = np.random.randint(0, len(file.keys()))
-                    data_dict = file[list(file.keys())[idx]] 
-                    config['ClothSize'] = data_dict['cloth_size'][:]
-                    config['ClothStiff'] = data_dict['cloth_stiff'][:]
-                    vertices = data_dict['mesh_verts'][:]
-                    if vertices.shape[0] == 0:
-                        env_idx = 0
-                    faces = data_dict['mesh_faces'][:]
-                    stretch_edges = data_dict['mesh_stretch_edges'][:]
-                    bend_edges = data_dict['mesh_bend_edges'][:]
-                    shear_edges = data_dict['mesh_shear_edges'][:]
-                    positions = data_dict['particle_pos'][:]
-                    vertices = vertices.astype(np.float32)
-                    faces = faces.astype(np.float32)
-                    stretch_edges = stretch_edges.astype(np.float32)
-                    bend_edges = bend_edges.astype(np.float32)
-                    shear_edges = shear_edges.astype(np.float32)
-                    vertices_num = vertices.shape[0] / 3
-                    faces_num = faces.shape[0] / 3
-                    stretch_edges_num = stretch_edges.shape[0] / 2
-                    bend_edges_num = bend_edges.shape[0] / 2
-                    shear_edges_num = shear_edges.shape[0] / 2
+                assert idx < len(file.keys()) and idx >= 0, "Invalid idx"
+                data_dict = file[list(file.keys())[idx]] 
+                config['ClothSize'] = data_dict['cloth_size'][:]
+                config['ClothStiff'] = data_dict['cloth_stiff'][:]
+                vertices = data_dict['mesh_verts'][:]
+                if vertices.shape[0] == 0:
+                    env_idx = 0
+                faces = data_dict['mesh_faces'][:]
+                stretch_edges = data_dict['mesh_stretch_edges'][:]
+                bend_edges = data_dict['mesh_bend_edges'][:]
+                shear_edges = data_dict['mesh_shear_edges'][:]
+                positions = data_dict['particle_pos'][:]
+                vertices = vertices.astype(np.float32)
+                faces = faces.astype(np.float32)
+                stretch_edges = stretch_edges.astype(np.float32)
+                bend_edges = bend_edges.astype(np.float32)
+                shear_edges = shear_edges.astype(np.float32)
+                vertices_num = vertices.shape[0] / 3
+                faces_num = faces.shape[0] / 3
+                stretch_edges_num = stretch_edges.shape[0] / 2
+                bend_edges_num = bend_edges.shape[0] / 2
+                shear_edges_num = shear_edges.shape[0] / 2
         scene_params = np.array([*config['ClothPos'], 
                                 *config['ClothSize'], 
                                 *config['ClothStiff'], 
