@@ -7,6 +7,7 @@ from copy import deepcopy
 from softgym.envs.cloth_env import FlexEnv
 from softgym.action_space.action_space import PickerPickPlace
 from softgym.utils.gemo_utils import *
+from softgym.utils.pyflex_utils import center_object
 
 
 def get_visible_idxs(particle_pos, depth, extrinsic_matrix, zthresh=0.01):
@@ -105,11 +106,11 @@ class ClothEnv3D(FlexEnv):
                 self.cached_init_states[i]['shape_pos'] = np.zeros((self.num_pickers, self.dim_shape_state))
 
         # cloth shape
-        self.config = self.get_default_config()
+        self.current_config = self.get_default_config()
 
         self.update_camera(
-            self.config["camera_name"],
-            self.config["camera_params"][self.config["camera_name"]],
+            self.current_config["camera_name"],
+            self.current_config["camera_params"][self.current_config["camera_name"]],
         )
         self.action_tool = PickerPickPlace(
             num_picker=self.num_pickers,
@@ -165,10 +166,10 @@ class ClothEnv3D(FlexEnv):
         return config
 
     def _get_flat_pos(self):
-        if self.current_config is not None:
-            dimx, dimy = self.current_config["ClothSize"]
-        else:
-            dimx, dimy = self.config["ClothSize"]
+        # if self.current_config is not None:
+        dimx, dimy = self.current_config["ClothSize"]
+        # else:
+        #     dimx, dimy = self.config["ClothSize"]
         x = np.array([i * self.cloth_particle_radius for i in range(dimx)])
         y = np.array([i * self.cloth_particle_radius for i in range(dimy)])
         x = x - np.mean(x)
@@ -222,7 +223,7 @@ class ClothEnv3D(FlexEnv):
 
     def get_corner_idxs(self):
         """Get the corner idxs of the cloth mesh"""
-        x, y = self.config['ClothSize']
+        x, y = self.current_config['ClothSize']
         corner_idxs = np.array([
             0, x-1, x*(y-1), x*y-1
         ])
@@ -230,7 +231,7 @@ class ClothEnv3D(FlexEnv):
 
     def get_edge_idxs(self):
         """Get edge idxs of the cloth mesh"""
-        x, y = self.config['ClothSize']
+        x, y = self.current_config['ClothSize']
         edge_idxs = np.array([
             np.arange(x), np.arange(x*(y-1), x*y), np.arange(0, x*y, x), np.arange(x-1, x*y, x)
         ]).flatten()
@@ -290,7 +291,7 @@ class ClothEnv3D(FlexEnv):
         render_mode = 2  # cloth
         env_idx = 0
         if config is None:
-            config = self.config
+            config = self.current_config
         
         # use camera params from state if available
         if state is not None:
@@ -325,9 +326,21 @@ class ClothEnv3D(FlexEnv):
         pyflex.set_positions(positions)
         pyflex.step()
 
-    def reset(self, flip_cloth=False, start_state=None, goal_state=None, config_id=None, set_to_flat=False, end_record=True):
+    def reset(self, 
+              flip_cloth=False, 
+              start_state=None, 
+              goal_state=None, 
+              config_id=None, 
+              set_to_flat=False, 
+              end_record=True, 
+              sample_cloth_size=False,
+              crumple=False):
         if self.recording and end_record:
             self.end_record()
+
+        # if sample_cloth_size: 
+            # cloth_dimx, cloth_dimy = self._sample_cloth_size()
+            # self.current_config['ClothSize'] = [cloth_dimx, cloth_dimy]
 
         if set_to_flat:
             if config_id is None:
@@ -341,6 +354,11 @@ class ClothEnv3D(FlexEnv):
         if config_id is not None: # load initial state from cached states
             # Must be called after set to flat for eval
             obs = super().reset(config_id=config_id)
+            return obs
+        elif crumple: # init crumpled cloth
+            self.crumple_cloth(vary_cloth_size=sample_cloth_size)
+            self._set_picker_pos(self.reset_pos)
+            obs = self.get_observations(cloth_only=False)
             return obs
         else: # load square cloth
             self.set_scene()
@@ -571,6 +589,75 @@ class ClothEnv3D(FlexEnv):
 
         for i in range(100):
             pyflex.step()
+
+    def _sample_cloth_size(self):
+        return np.random.randint(40, 46), np.random.randint(40, 46)
+
+    def crumple_cloth(self, vary_cloth_size=False, stable_vel_threshold=0.01):
+        max_wait_step = 300  # Maximum number of steps waiting for the cloth to stablize
+        # stable_vel_threshold = 0.01  # Cloth stable when all particles' vel are smaller than this
+        # generated_configs, generated_states = [], []
+
+        if self.current_config is None:
+            self.current_config = self.get_default_config()
+
+        # config = deepcopy(default_config)
+        # self.update_camera(config['camera_name'], config['camera_params'][config['camera_name']])
+        if vary_cloth_size:
+            cloth_dimx, cloth_dimy = self._sample_cloth_size()
+            self.current_config['ClothSize'] = [cloth_dimx, cloth_dimy]
+        else:
+            cloth_dimx, cloth_dimy = self.current_config['ClothSize']
+        # [cloth_dimx, cloth_dimy] = self.current_config['ClothSize'] 
+
+        self.set_scene(self.current_config)
+        self.action_tool.reset([0., -1., 0.])
+        pos = pyflex.get_positions().reshape(-1, 4)
+        pos[:, :3] -= np.mean(pos, axis=0)[:3]
+        # if self.action_mode in ['sawyer', 'franka']:  # Take care of the table in robot case
+            # pos[:, 1] = 0.57
+        # else:
+        pos[:, 1] = 0.005
+        pos[:, 3] = 1
+        pyflex.set_positions(pos.flatten())
+        pyflex.set_velocities(np.zeros_like(pos))
+        pyflex.step()
+
+        self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
+
+        num_particle = cloth_dimx * cloth_dimy
+        pickpoint = random.randint(0, num_particle - 1)
+        curr_pos = pyflex.get_positions()
+        original_inv_mass = curr_pos[pickpoint * 4 + 3]
+        curr_pos[pickpoint * 4 + 3] = 0  # Set the mass of the pickup point to infinity so that it generates enough force to the rest of the cloth
+        pickpoint_pos = curr_pos[pickpoint * 4: pickpoint * 4 + 3].copy()  # Pos of the pickup point is fixed to this point
+        pickpoint_pos[1] += np.random.random(1) * 0.5 + 0.5
+        pyflex.set_positions(curr_pos)
+
+        # Pick up the cloth and wait to stablize
+        for j in range(0, max_wait_step):
+            curr_pos = pyflex.get_positions()
+            curr_vel = pyflex.get_velocities()
+            curr_pos[pickpoint * 4: pickpoint * 4 + 3] = pickpoint_pos
+            curr_vel[pickpoint * 3: pickpoint * 3 + 3] = [0, 0, 0]
+            pyflex.set_positions(curr_pos)
+            pyflex.set_velocities(curr_vel)
+            pyflex.step()
+            if np.alltrue(np.abs(curr_vel) < stable_vel_threshold) and j > 5:
+                break
+
+        # Drop the cloth and wait to stablize
+        curr_pos = pyflex.get_positions()
+        curr_pos[pickpoint * 4 + 3] = original_inv_mass
+        pyflex.set_positions(curr_pos)
+        for _ in range(max_wait_step):
+            pyflex.step()
+            curr_vel = pyflex.get_velocities()
+            if np.alltrue(curr_vel < stable_vel_threshold):
+                break
+
+        center_object()
+
 
     def _get_info(self):
         return {}
