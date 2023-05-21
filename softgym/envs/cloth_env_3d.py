@@ -106,11 +106,11 @@ class ClothEnv3D(FlexEnv):
                 self.cached_init_states[i]['shape_pos'] = np.zeros((self.num_pickers, self.dim_shape_state))
 
         # cloth shape
-        self.current_config = self.get_default_config()
+        self.config = self.get_default_config()
 
         self.update_camera(
-            self.current_config["camera_name"],
-            self.current_config["camera_params"][self.current_config["camera_name"]],
+            self.config["camera_name"],
+            self.config["camera_params"][self.config["camera_name"]],
         )
         self.action_tool = PickerPickPlace(
             num_picker=self.num_pickers,
@@ -133,7 +133,16 @@ class ClothEnv3D(FlexEnv):
     def _sample_cloth_pose(self, pose_list):
         poses_path = random.sample(pose_list, 1)[0]
         pcd_points = np.load(poses_path, allow_pickle=True)
-        return pcd_points, poses_path
+        
+        # load cloth dim if it exists
+        cloth_dim_path = Path(poses_path).parent / "cloth_dim.npy"
+        if cloth_dim_path.exists():
+            cloth_dim = np.load(cloth_dim_path, allow_pickle=True)
+            # self.current_config["ClothSize"] = cloth_dim
+        else:
+            cloth_dim = self.config["ClothSize"]
+
+        return pcd_points, cloth_dim, poses_path
 
     def get_default_config(self):
         particle_radius = self.cloth_particle_radius
@@ -284,6 +293,7 @@ class ClothEnv3D(FlexEnv):
             "poke_idx": 0,
             "visible_idxs": visible_idxs,
             "hidden_idxs": hidden_idxs,
+            "cloth_dim": self.current_config['ClothSize'],
         }
         return obs
 
@@ -291,7 +301,7 @@ class ClothEnv3D(FlexEnv):
         render_mode = 2  # cloth
         env_idx = 0
         if config is None:
-            config = self.current_config
+            config = self.config
         
         # use camera params from state if available
         if state is not None:
@@ -338,10 +348,6 @@ class ClothEnv3D(FlexEnv):
         if self.recording and end_record:
             self.end_record()
 
-        # if sample_cloth_size: 
-            # cloth_dimx, cloth_dimy = self._sample_cloth_size()
-            # self.current_config['ClothSize'] = [cloth_dimx, cloth_dimy]
-
         if set_to_flat:
             if config_id is None:
                 raise ValueError("config_id must be specified if set_to_flat is True")
@@ -361,29 +367,35 @@ class ClothEnv3D(FlexEnv):
             obs = self.get_observations(cloth_only=False)
             return obs
         else: # load square cloth
-            self.set_scene()
-            self.particle_num = pyflex.get_n_particles()
             self.prev_reward = 0.0
             self.time_step = 0
-
             # if start state and goal state are both specified,
             # then load those states
             if goal_state is not None and start_state is not None:
                 self.goal_pcd_points = np.load(goal_state, allow_pickle=True)
+                self.set_scene()
+                self.particle_num = pyflex.get_n_particles()
                 self.set_pyflex_positions(np.load(start_state, allow_pickle=True))
             elif self.states_list is not None: # or, sample a start state and goal state
                 prob = np.random.random()
                 if prob < self.fold_unfold_ratio: # load folding goal
-                    self.goal_pcd_points, goal_path = self._sample_cloth_pose(self.states_list)
+                    config = self.get_default_config()
+                    self.goal_pcd_points, cloth_dim, goal_path = self._sample_cloth_pose(self.states_list)
+                    config['ClothSize'] = cloth_dim
+                    self.set_scene(config=config)
+                    self.particle_num = pyflex.get_n_particles()
                     if self.use_subgoals: # load start state as previous pose
                         reset_state = np.load(Path(goal_path).parent / 'prev_object_pcd.npy', allow_pickle=True)
                     else:
                         reset_state = self._get_flat_pos()
                     self.set_pyflex_positions(reset_state)
                 else: # load unfolding goal
-                    self._set_to_flat()
-                    self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
-                    reset_state, _ = self._sample_cloth_pose(self.states_list)
+                    config = self.get_default_config()
+                    reset_state, cloth_dim, sample_path = self._sample_cloth_pose(self.states_list)
+                    config['ClothSize'] = cloth_dim
+                    self.goal_pcd_points = np.load(Path(sample_path).parent / 'goal_pcd.npy', allow_pickle=True)
+                    self.set_scene(config=config)
+                    self.particle_num = pyflex.get_n_particles()
 
                     if flip_cloth: 
                         self.goal_pcd_points = self._rotate_positions(self.goal_pcd_points)
@@ -396,6 +408,8 @@ class ClothEnv3D(FlexEnv):
                     else:
                         self.set_pyflex_positions(reset_state)
             else: # otherwise, just set to flat
+                self.set_scene()
+                self.particle_num = pyflex.get_n_particles()
                 self._set_to_flat()
                 self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
 
@@ -599,18 +613,17 @@ class ClothEnv3D(FlexEnv):
         # generated_configs, generated_states = [], []
 
         if self.current_config is None:
-            self.current_config = self.get_default_config()
+            config = self.get_default_config()
 
-        # config = deepcopy(default_config)
         # self.update_camera(config['camera_name'], config['camera_params'][config['camera_name']])
         if vary_cloth_size:
             cloth_dimx, cloth_dimy = self._sample_cloth_size()
-            self.current_config['ClothSize'] = [cloth_dimx, cloth_dimy]
+            config['ClothSize'] = [cloth_dimx, cloth_dimy]
         else:
-            cloth_dimx, cloth_dimy = self.current_config['ClothSize']
+            cloth_dimx, cloth_dimy = config['ClothSize']
         # [cloth_dimx, cloth_dimy] = self.current_config['ClothSize'] 
 
-        self.set_scene(self.current_config)
+        self.set_scene(config=config)
         self.action_tool.reset([0., -1., 0.])
         pos = pyflex.get_positions().reshape(-1, 4)
         pos[:, :3] -= np.mean(pos, axis=0)[:3]
