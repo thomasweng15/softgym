@@ -393,9 +393,14 @@ class ClothEnv3D(FlexEnv):
                     config = self.get_default_config()
                     reset_state, cloth_dim, sample_path = self._sample_cloth_pose(self.states_list)
                     config['ClothSize'] = cloth_dim
-                    self.goal_pcd_points = np.load(Path(sample_path).parent / 'goal_pcd.npy', allow_pickle=True)
                     self.set_scene(config=config)
                     self.particle_num = pyflex.get_n_particles()
+                    
+                    goal_pcd_path = Path(sample_path).parent / 'goal_pcd.npy'
+                    self.goal_pcd_points = np.load(goal_pcd_path, allow_pickle=True) if goal_pcd_path.exists() else Nonnstae
+                    if np.any(self.goal_pcd_points == None): # goal not saved in dataset
+                        self._set_to_flat()
+                        self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
 
                     if flip_cloth: 
                         self.goal_pcd_points = self._rotate_positions(self.goal_pcd_points)
@@ -614,6 +619,8 @@ class ClothEnv3D(FlexEnv):
 
         if self.current_config is None:
             config = self.get_default_config()
+        else:
+            config = self.current_config
 
         # self.update_camera(config['camera_name'], config['camera_params'][config['camera_name']])
         if vary_cloth_size:
