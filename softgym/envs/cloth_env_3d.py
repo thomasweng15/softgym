@@ -336,7 +336,56 @@ class ClothEnv3D(FlexEnv):
         pyflex.set_positions(positions)
         pyflex.step()
 
-    def reset(self, 
+    
+    def reset(self, flip_cloth=False, start_state=None, goal_state=None, **kwargs):
+        self.set_scene()
+        self.particle_num = pyflex.get_n_particles()
+        self.prev_reward = 0.0
+        self.time_step = 0
+
+        # if start state and goal state are both specified,
+        # then load those states
+        if goal_state is not None and start_state is not None:
+            self.goal_pcd_points = np.load(goal_state, allow_pickle=True)
+            self.set_pyflex_positions(np.load(start_state, allow_pickle=True))
+        elif self.states_list is not None: # or, sample a start state and goal state
+            prob = np.random.random()
+            if prob < self.fold_unfold_ratio: # load folding goal
+                self.goal_pcd_points, _, goal_path = self._sample_cloth_pose(self.states_list)
+                if self.use_subgoals: # load start state as previous pose
+                    reset_state = np.load(Path(goal_path).parent / 'prev_object_pcd.npy', allow_pickle=True)
+                else:
+                    reset_state = self._get_flat_pos()
+                self.set_pyflex_positions(reset_state)
+            else: # load unfolding goal
+                self._set_to_flat()
+                self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
+                reset_state, _, _ = self._sample_cloth_pose(self.states_list)
+
+                if flip_cloth: 
+                    self.goal_pcd_points = self._rotate_positions(self.goal_pcd_points)
+                    self.set_pyflex_positions(reset_state)
+                    reset_state = self._rotate_positions(reset_state)
+                    self.set_pyflex_positions(reset_state)
+                    max_z = reset_state[:, 1].max()
+                    for i in range(int(max_z / 0.003) + 1):
+                        pyflex.step()
+                else:
+                    self.set_pyflex_positions(reset_state)
+        else: # otherwise, just set to flat
+            self._set_to_flat()
+
+        if hasattr(self, "action_tool"):
+            self.action_tool.reset([0, 0.1, 0])
+            self._set_picker_pos(self.reset_pos)
+        # if self.recording:
+            # self.video_frames.append(self.render(mode="rgb_array"))
+
+        obs = self.get_observations(cloth_only=False)
+
+        return obs
+
+    def reset_new(self, 
               flip_cloth=False, 
               start_state=None, 
               goal_state=None, 
