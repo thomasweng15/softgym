@@ -127,8 +127,8 @@ class ClothEnv3D(FlexEnv):
 
         self.goal_pcd_points = None
         self.extrinsic_matrix = get_extrinsic_matrix(self)
-        self.corner_idxs = self.get_corner_idxs()
-        self.edge_idxs = self.get_edge_idxs()
+        # self.corner_idxs = self.get_corner_idxs()
+        # self.edge_idxs = self.get_edge_idxs()
 
     def _sample_cloth_pose(self, pose_list):
         poses_path = random.sample(pose_list, 1)[0]
