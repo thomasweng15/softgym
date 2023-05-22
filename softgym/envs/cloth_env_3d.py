@@ -226,8 +226,13 @@ class ClothEnv3D(FlexEnv):
                     category_path = "flingbot-"+category+'-eval.hdf5'
                     category_path = [(dataset_path / self.split) / category_path]
                     self.mesh_input_files.extend(category_path)
-        elif dataset_name == "clothfunnels":
-            doSomething=1
+        elif dataset_name == "cloth-funnels":
+            self.split = split
+            split_str = "train" if self.split == "train" else "eval"
+            category_path = 'multi-longsleeve-'+split_str+'.hdf5'
+            category_path = [(dataset_path / self.split) / category_path]
+            self.mesh_input_files.extend(category_path)
+
         elif dataset_name == "square":
             pass
         else:
@@ -298,8 +303,6 @@ class ClothEnv3D(FlexEnv):
             curr_pos[:, :3] = flat_pos
             pyflex.set_positions(curr_pos)
             pyflex.step()
-
-        pass
 
     def _set_picker_pos(self, picker_pos):
         picker_pos = np.reshape(picker_pos, [-1, 3])
@@ -529,6 +532,58 @@ class ClothEnv3D(FlexEnv):
             dtype=np.float32,
             )
             pyflex.set_scene(env_idx, scene_params, 0)
+        elif self.dataset_name == "cloth-funnels":
+            env_idx = 1
+            mesh_hdf5_path = self.mesh_input_files[0]
+            with h5py.File(mesh_hdf5_path, 'r') as file:
+                if idx is None:
+                    idx = np.random.randint(0, len(file.keys()))
+                assert idx < len(file.keys()) and idx >= 0, "Invalid idx"
+                data_dict = file[list(file.keys())[idx]] 
+                config['ClothStiff'] = data_dict['cloth_stiff'][:]
+                vertices = data_dict['mesh_verts'][:]
+                if vertices.shape[0] == 0:
+                    env_idx = 0
+                faces = data_dict['mesh_faces'][:]
+                stretch_edges = data_dict['mesh_stretch_edges'][:]
+                bend_edges = data_dict['mesh_bend_edges'][:]
+                shear_edges = data_dict['mesh_shear_edges'][:]
+                positions = data_dict['particle_pos'][:]
+                vertices = vertices.astype(np.float32)
+                faces = faces.astype(np.float32)
+                stretch_edges = stretch_edges.astype(np.float32)
+                bend_edges = bend_edges.astype(np.float32)
+                shear_edges = shear_edges.astype(np.float32)
+                vertices_num = vertices.shape[0] / 3
+                faces_num = faces.shape[0] / 3
+                stretch_edges_num = stretch_edges.shape[0] / 2
+                bend_edges_num = bend_edges.shape[0] / 2
+                shear_edges_num = shear_edges.shape[0] / 2
+            scene_params = np.array([*config['ClothPos'], 
+                                *config['ClothSize'], 
+                                *config['ClothStiff'], 
+                                render_mode,
+                                *camera_params['pos'][:], 
+                                *camera_params['angle'][:], 
+                                camera_params['width'], 
+                                camera_params['height'], 
+                                mass,
+                                config['flip_mesh'], 
+                                vertices_num, 
+                                faces_num,
+                                stretch_edges_num,
+                                bend_edges_num,
+                                shear_edges_num,
+                                *vertices.reshape(-1),
+                                *faces.reshape(-1),
+                                *stretch_edges.reshape(-1),
+                                *bend_edges.reshape(-1),
+                                *shear_edges.reshape(-1)])
+            pyflex.set_scene(env_idx, scene_params, 0)
+            self.flat_positions = pyflex.get_positions().reshape(-1, 4)[:, :3]
+            if not start_flat:
+                pyflex.set_positions(positions.astype(np.float32))
+
         else:
             raise ValueError("Invalid dataset name")
         

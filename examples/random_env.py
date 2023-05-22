@@ -53,16 +53,16 @@ def main():
     if not env_kwargs['use_cached_states']:
         print('Waiting to generate environment variations. May take 1 minute for each variation...')
     
-    if env_name == 'flingbot' or env_name == 'square':
+    if env_name == 'flingbot' or env_name == 'square' or env_name == 'clothfunnels':
         env = SOFTGYM_ENVS[args.env_name](**env_kwargs)
-        env.reset(start_flat=True)
+        env.reset(start_flat=False)
     else:
         env = normalize(SOFTGYM_ENVS[args.env_name](**env_kwargs))
         env.reset()
         frames = [env.get_image(args.img_size, args.img_size)]
 
     for i in range(env.horizon):
-        if env_name == 'flingbot' or env_name == 'square':
+        if env_name == 'flingbot' or env_name == 'square' or env_name == 'clothfunnels':
             action = np.array([[0,0,0],[0,0,0]])
             _, info = env.step(action)
         else:

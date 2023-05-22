@@ -198,7 +198,17 @@ env_arg_dict = {
         render=True,
         headless=True,
         dataset_name = 'square',
-     )
+    ),
+    "clothfunnels": dict(
+        dataset_path=Path(os.getenv('CLOTHFUNNELS_DATASET_PATH')),
+        observation_mode='point_cloud',
+        action_mode='picker',
+        num_pickers=1,
+        render=True,
+        headless=True,
+        dataset_name = 'cloth-funnels',
+        split = 'test'
+    )
 }
 
 SOFTGYM_ENVS = OrderedDict({
@@ -217,4 +227,5 @@ SOFTGYM_ENVS = OrderedDict({
     'ClothEnv3D': ClothEnv3D, 
     'flingbot': ClothEnv3D, 
     'square': ClothEnv3D, 
+    'clothfunnels': ClothEnv3D, 
 })
