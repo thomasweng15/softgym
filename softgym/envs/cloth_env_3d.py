@@ -2,6 +2,7 @@ import numpy as np
 import pyflex
 import copy
 import random
+import time
 from pathlib import Path
 from copy import deepcopy
 from softgym.envs.cloth_env import FlexEnv
@@ -117,8 +118,8 @@ class ClothEnv3D(FlexEnv):
             picker_radius=picker_radius,
             particle_radius=particle_radius,
             env=self,
-            picker_low=(-0.6, 0.0125, -0.6),
-            picker_high=(0.6, 0.6, 0.6),
+            picker_low=(-0.45, 0.0125, -0.45),
+            picker_high=(0.45, 0.6, 0.45),
             collect_steps=False,
         )
         self.action_tool.delta_move = 0.005
@@ -150,6 +151,7 @@ class ClothEnv3D(FlexEnv):
         cam_pos, cam_angle = np.array([-0.0, 1.5, 0.0]), np.array(
             [0, -np.pi / 2.0, 0.0]
         )
+        # cam_pos, cam_angle
         config = {
             "ClothPos": [-0.15, 0.0, -0.15],
             "ClothSize": [int(0.30 / particle_radius), int(0.30 / particle_radius)],
@@ -250,20 +252,48 @@ class ClothEnv3D(FlexEnv):
         rgb_cloth, depth_cloth = self._get_rgbd(cloth_only=True)
         rgb, depth = self._get_rgbd(cloth_only=cloth_only)
         object_pcd_points = self._get_cloud()
+        # world_coords = get_world_coords(rgb_cloth, depth_cloth, self)
+
+        # start = time.time()
         visible_idxs, hidden_idxs = get_visible_idxs(object_pcd_points, depth_cloth, self.extrinsic_matrix)
+        # duration = time.time() - start
+        # print("get_visible_idxs took {} seconds".format(duration))
+
+        # # all depth points, not cloth nodes
+        # start = time.time()
+        # visible_idxs2, hidden_idxs2 = get_observable_particle_index(world_coords, object_pcd_points, rgb_cloth, depth_cloth)
+        # duration = time.time() - start
+        # print("get_observable_particle_index took {} seconds".format(duration))
+
+        # # not working, all depth points, not cloth nodes
+        # start = time.time()
+        # visible_idxs, hidden_idxs = get_observable_particle_index_vectorized(world_coords, object_pcd_points, rgb_cloth, depth_cloth)
+        # duration = time.time() - start
+        # print("get_observable_particle_index_vectorized took {} seconds".format(duration))
         
         # make a plotly plot with the observable idxs
         if False:
             import plotly.graph_objects as go
             fig = go.Figure(data=[
                 go.Scatter3d(
-                x=object_pcd_points[observable_idxs, 0],
-                y=object_pcd_points[observable_idxs, 2],
-                z=object_pcd_points[observable_idxs, 1],
+                x=object_pcd_points[visible_idxs, 0],
+                y=object_pcd_points[visible_idxs, 2],
+                z=object_pcd_points[visible_idxs, 1],
                 mode='markers',
                 marker=dict(
                     size=3,
                     color='red',
+                    opacity=0.8
+                    )
+                ),
+                go.Scatter3d(
+                x=self.goal_pcd_points[:, 0],
+                y=self.goal_pcd_points[:, 2],
+                z=self.goal_pcd_points[:, 1],
+                mode='markers',
+                marker=dict(
+                    size=3,
+                    color='orange',
                     opacity=0.8
                     )
                 ),
@@ -351,9 +381,15 @@ class ClothEnv3D(FlexEnv):
         if set_to_flat:
             if config_id is None:
                 raise ValueError("config_id must be specified if set_to_flat is True")
-            super().reset(config_id=config_id)
-            self._set_to_flat()
-            self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
+            obs = super().reset(config_id=config_id)
+            # reset_state = self._get_flat_pos()
+            # self.goal_pcd_points = self._set_to_flat()
+            self.goal_pcd_points = self._get_flat_pos()
+            # self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
+            self.update_camera(
+                self.current_config["camera_name"],
+                self.current_config["camera_params"][self.current_config["camera_name"]],
+            )
             obs = self.get_observations(cloth_only=False)
             return obs
 
@@ -397,7 +433,7 @@ class ClothEnv3D(FlexEnv):
                     self.particle_num = pyflex.get_n_particles()
                     
                     goal_pcd_path = Path(sample_path).parent / 'goal_pcd.npy'
-                    self.goal_pcd_points = np.load(goal_pcd_path, allow_pickle=True) if goal_pcd_path.exists() else Nonnstae
+                    self.goal_pcd_points = np.load(goal_pcd_path, allow_pickle=True) if goal_pcd_path.exists() else None                    
                     if np.any(self.goal_pcd_points == None): # goal not saved in dataset
                         self._set_to_flat()
                         self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
@@ -412,6 +448,8 @@ class ClothEnv3D(FlexEnv):
                             pyflex.step()
                     else:
                         self.set_pyflex_positions(reset_state)
+                    
+                    # print(f"Reset num particles: {self.particle_num}, train: {not self.record}")
             else: # otherwise, just set to flat
                 self.set_scene()
                 self.particle_num = pyflex.get_n_particles()
@@ -475,6 +513,7 @@ class ClothEnv3D(FlexEnv):
 
         action_scaled = self._step(action)
         nobs = self.get_observations(cloth_only=False)
+        # print(f"Step {self.time_step} num particles: {self.particle_num}, train: {not self.record}")
 
         self.time_step += 1
 
@@ -569,6 +608,8 @@ class ClothEnv3D(FlexEnv):
         # get cloth positions
         cloth_pos = pyflex.get_positions().reshape(-1, 4)
         cloth_pos_rot = self._rotate_positions(cloth_pos)
+
+        self.goal_pcd_points = self._rotate_positions(self.goal_pcd_points)
 
         # plotly 3D plot to show cloth_pos_rot
         if False:

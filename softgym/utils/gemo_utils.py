@@ -209,6 +209,7 @@ def get_observable_particle_index(world_coords, particle_pos, rgb, depth):
 	height, width, _ = rgb.shape
 	# perform the matching of pixel particle to real particle
 	observable_particle_idxes = []
+	hidden_particle_idxes = []
 	particle_pos = particle_pos[:, :3]
 	for u in range(height):
 		for v in range(width):
@@ -224,5 +225,48 @@ def get_observable_particle_index(world_coords, particle_pos, rgb, depth):
 				# rgb[u][v][2] = 0
 				# cv2.imshow('chosen_idx', rgb[:, :, ::-1])
 				# cv2.waitKey()
+			else:
+				hidden_particle_idxes.append(u * width + v)
 	# exit()
-	return observable_particle_idxes
+	return observable_particle_idxes, hidden_particle_idxes
+
+# vectorized get observable particle index
+def get_observable_particle_index_vectorized(world_coords, particle_pos, rgb, depth):
+	height, width, _ = rgb.shape
+	# perform the matching of pixel particle to real particle
+	# observable_particle_idxes = []
+	# hidden_particle_idxes = []
+	particle_pos = particle_pos[:, :3]
+
+	observable_particle_mask = depth > 0 # height x width
+	observable_particle_idxes = estimated_particle_idx[observable_particle_mask]
+
+	
+	# get the estimated world coordinate of each particle
+	estimated_world_coords = world_coords.reshape((-1, 4))[:, :3] # (height x width) x 3
+	estimated_world_coords = np.tile(estimated_world_coords, (particle_pos.shape[0], 1)) # (height x width) x (particle_num x 3)
+	estimated_world_coords = estimated_world_coords.reshape((height, width, particle_pos.shape[0], 3)) # height x width x particle_num x 3
+
+	# get the distance between each particle and each pixel
+	distance = np.linalg.norm(estimated_world_coords - particle_pos, axis=3) # height x width x particle_num
+
+	# get the estimated particle index of each pixel
+	estimated_particle_idx = np.argmin(distance, axis=2) # height x width
+
+	# get mask of observable particles
+
+	# get the observable particle index of each pixel
+	hidden_particle_idxes = np.where(observable_particle_mask == False)[0] * width + np.where(observable_particle_mask == False)[1]
+
+
+	# get the observable particle index of each pixel
+	# for u in range(height):
+		# for v in range(width):
+			# if depth[u][v] > 0:
+				# observable_particle_idxes.append(estimated_particle_idx[u][v])
+			# else:
+				# hidden_particle_idxes.append(u * width + v)
+
+	# vectorized get observable particle index 
+
+	return observable_particle_idxes, hidden_particle_idxes
