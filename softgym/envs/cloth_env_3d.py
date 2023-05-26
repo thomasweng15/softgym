@@ -127,7 +127,7 @@ class ClothEnv3D(FlexEnv):
         self.reset_pos = np.array([0.0, 0.1, -0.6] * self.num_pickers)
 
         self.goal_pcd_points = None
-        self.extrinsic_matrix = get_extrinsic_matrix(self)
+        # self.extrinsic_matrix = get_extrinsic_matrix(self)
         # self.corner_idxs = self.get_corner_idxs()
         # self.edge_idxs = self.get_edge_idxs()
 
@@ -255,7 +255,8 @@ class ClothEnv3D(FlexEnv):
         # world_coords = get_world_coords(rgb_cloth, depth_cloth, self)
 
         # start = time.time()
-        visible_idxs, hidden_idxs = get_visible_idxs(object_pcd_points, depth_cloth, self.extrinsic_matrix)
+        extrinsic_matrix = get_extrinsic_matrix(self)
+        visible_idxs, hidden_idxs = get_visible_idxs(object_pcd_points, depth_cloth, extrinsic_matrix)
         # duration = time.time() - start
         # print("get_visible_idxs took {} seconds".format(duration))
 
@@ -358,6 +359,8 @@ class ClothEnv3D(FlexEnv):
 
         if state is not None:
             super().set_state(state)
+        else:
+            self.update_camera(config['camera_name'], camera_params)
         self.current_config = deepcopy(config)
 
     def set_pyflex_positions(self, positions):
@@ -378,24 +381,27 @@ class ClothEnv3D(FlexEnv):
         if self.recording and end_record:
             self.end_record()
 
-        if set_to_flat:
-            if config_id is None:
-                raise ValueError("config_id must be specified if set_to_flat is True")
-            obs = super().reset(config_id=config_id)
-            # reset_state = self._get_flat_pos()
-            # self.goal_pcd_points = self._set_to_flat()
-            self.goal_pcd_points = self._get_flat_pos()
-            # self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
-            self.update_camera(
-                self.current_config["camera_name"],
-                self.current_config["camera_params"][self.current_config["camera_name"]],
-            )
-            obs = self.get_observations(cloth_only=False)
-            return obs
+        # if set_to_flat:
+        #     if config_id is None:
+        #         raise ValueError("config_id must be specified if set_to_flat is True")
+        #     obs = super().reset(config_id=config_id)
+        #     # reset_state = self._get_flat_pos()
+        #     # self.goal_pcd_points = self._set_to_flat()
+        #     self.goal_pcd_points = self._get_flat_pos()
+        #     # self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
+        #     self.update_camera(
+        #         self.current_config["camera_name"],
+        #         self.current_config["camera_params"][self.current_config["camera_name"]],
+        #     )
+        #     obs = self.get_observations(cloth_only=False)
+        #     return obs
 
         if config_id is not None: # load initial state from cached states
             # Must be called after set to flat for eval
             obs = super().reset(config_id=config_id)
+            # Update goal pcd points
+            self.goal_pcd_points = self._get_flat_pos()
+            obs['goal_pcd_points'] = self.goal_pcd_points
             return obs
         elif crumple: # init crumpled cloth
             self.crumple_cloth(vary_cloth_size=sample_cloth_size)
