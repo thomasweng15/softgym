@@ -10,6 +10,20 @@ from softgym.action_space.action_space import PickerPickPlace
 from softgym.utils.gemo_utils import *
 from softgym.utils.pyflex_utils import center_object
 
+def vectorized_range(start, end):
+    """  Return an array of NxD, iterating from the start to the end"""
+    N = int(np.max(end - start)) + 1
+    idxes = np.floor(np.arange(N) * (end - start)[:, None] / N + start[:, None]).astype('int')
+    return idxes
+
+
+def vectorized_meshgrid(vec_x, vec_y):
+    """vec_x in NxK, vec_y in NxD. Return xx in Nx(KxD) and yy in Nx(DxK)"""
+    N, K, D = vec_x.shape[0], vec_x.shape[1], vec_y.shape[1]
+    vec_x = np.tile(vec_x[:, None, :], [1, D, 1]).reshape(N, -1)
+    vec_y = np.tile(vec_y[:, :, None], [1, 1, K]).reshape(N, -1)
+    return vec_x, vec_y
+
 
 def get_visible_idxs(particle_pos, depth, extrinsic_matrix, zthresh=0.01):
     # project particle_pos into depth image coordinates
@@ -192,6 +206,50 @@ class ClothEnv3D(FlexEnv):
         curr_pos[:, 2] = yy.flatten()
         curr_pos[:, 1] = 5e-3  # Set specifally for particle radius of 0.00625
         return curr_pos
+
+    def _get_flat_pos_vcd(self):
+        # self._get_current_covered_area(pyflex.get_positions().reshape(-))
+        cloth_dimx, cloth_dimz = self.config["ClothSize"]
+        N = cloth_dimx * cloth_dimz
+        px = np.linspace(0, cloth_dimx * self.cloth_particle_radius, cloth_dimx)
+        py = np.linspace(0, cloth_dimz * self.cloth_particle_radius, cloth_dimz)
+        xx, yy = np.meshgrid(px, py)
+        new_pos = np.empty(shape=(N, 4), dtype=np.float)
+        new_pos[:, 0] = xx.flatten()
+        new_pos[:, 1] = self.cloth_particle_radius
+        new_pos[:, 2] = yy.flatten()
+        new_pos[:, 3] = 1. 
+        new_pos[:, :3] -= np.mean(new_pos[:, :3], axis=0) #see if this is important
+        return new_pos[:, :3]
+    
+    def _get_current_covered_area(self, pos):
+        """
+        Calculate the covered area by taking max x,y cood and min x,y coord, create a discritized grid between the points
+        :param pos: Current positions of the particle states
+        """
+        pos = np.reshape(pos, [-1, 3])
+        min_x = np.min(pos[:, 0])
+        min_y = np.min(pos[:, 2])
+        max_x = np.max(pos[:, 0])
+        max_y = np.max(pos[:, 2])
+        init = np.array([min_x, min_y])
+        span = np.array([max_x - min_x, max_y - min_y]) / 100.
+        pos2d = pos[:, [0, 2]]
+
+        offset = pos2d - init
+        slotted_x_low = np.maximum(np.round((offset[:, 0] - self.cloth_particle_radius) / span[0]).astype(int), 0)
+        slotted_x_high = np.minimum(np.round((offset[:, 0] + self.cloth_particle_radius) / span[0]).astype(int), 100)
+        slotted_y_low = np.maximum(np.round((offset[:, 1] - self.cloth_particle_radius) / span[1]).astype(int), 0)
+        slotted_y_high = np.minimum(np.round((offset[:, 1] + self.cloth_particle_radius) / span[1]).astype(int), 100)
+        # Method 1
+        grid = np.zeros(10000)  # Discretization
+        listx = vectorized_range(slotted_x_low, slotted_x_high)
+        listy = vectorized_range(slotted_y_low, slotted_y_high)
+        listxx, listyy = vectorized_meshgrid(listx, listy)
+        idx = listxx * 100 + listyy
+        idx = np.clip(idx.flatten(), 0, 9999)
+        grid[idx] = 1
+        return np.sum(grid) * span[0] * span[1]
 
     def _set_to_flat(self):
         curr_pos = pyflex.get_positions().reshape((-1, 4))
@@ -378,6 +436,9 @@ class ClothEnv3D(FlexEnv):
               end_record=True, 
               sample_cloth_size=False,
               crumple=False):
+        
+        if self.recording:
+            self.start_record()
         if self.recording and end_record:
             self.end_record()
 
@@ -469,8 +530,9 @@ class ClothEnv3D(FlexEnv):
         if hasattr(self, "action_tool"):
             self.action_tool.reset([0, 0.1, 0])
             self._set_picker_pos(self.reset_pos)
+
         # if self.recording:
-            # self.video_frames.append(self.render(mode="rgb_array"))
+        #     self.video_frames.append(self.render(mode="rgb_array"))
 
         obs = self.get_observations(cloth_only=False)
 
