@@ -2,6 +2,7 @@ import numpy as np
 import pyflex
 import copy
 import random
+import cv2
 import time
 from pathlib import Path
 from copy import deepcopy
@@ -9,6 +10,11 @@ from softgym.envs.cloth_env import FlexEnv
 from softgym.action_space.action_space import PickerPickPlace
 from softgym.utils.gemo_utils import *
 from softgym.utils.pyflex_utils import center_object
+
+
+def merge_images(img1, img2, alpha=0.5):
+    # weighted combination of current and goal image
+    return cv2.addWeighted(img1, alpha, img2, 1-alpha, 0)
 
 
 def center_object():
@@ -150,6 +156,7 @@ class ClothEnv3D(FlexEnv):
         self.reset_pos = np.array([0.0, 0.1, -0.6] * self.num_pickers)
 
         self.goal_pcd_points = None
+        self.goal_img = None
         # self.extrinsic_matrix = get_extrinsic_matrix(self)
         # self.corner_idxs = self.get_corner_idxs()
         # self.edge_idxs = self.get_edge_idxs()
@@ -339,49 +346,6 @@ class ClothEnv3D(FlexEnv):
         # duration = time.time() - start
         # print("get_observable_particle_index_vectorized took {} seconds".format(duration))
         
-        # make a plotly plot with the observable idxs
-        if False:
-            import plotly.graph_objects as go
-            fig = go.Figure(data=[
-                go.Scatter3d(
-                x=object_pcd_points[visible_idxs, 0],
-                y=object_pcd_points[visible_idxs, 2],
-                z=object_pcd_points[visible_idxs, 1],
-                mode='markers',
-                marker=dict(
-                    size=3,
-                    color='red',
-                    opacity=0.8
-                    )
-                ),
-                go.Scatter3d(
-                x=self.goal_pcd_points[:, 0],
-                y=self.goal_pcd_points[:, 2],
-                z=self.goal_pcd_points[:, 1],
-                mode='markers',
-                marker=dict(
-                    size=3,
-                    color='orange',
-                    opacity=0.8
-                    )
-                ),
-                go.Scatter3d(
-                x=object_pcd_points[:, 0],
-                y=object_pcd_points[:, 2],
-                z=object_pcd_points[:, 1],
-                mode='markers',
-                marker=dict(
-                    size=2,
-                    color='blue',
-                    opacity=0.8
-                    )
-                )
-            ])
-            fig.update_layout(scene_zaxis_range=[0, 0.5])
-            fig.update_layout(scene_xaxis_range=[-0.3, 0.3])
-            fig.update_layout(scene_yaxis_range=[-0.3, 0.3])
-            fig.show()
-
         obs = {
             "color": rgb, 
             "depth": depth, 
@@ -483,15 +447,12 @@ class ClothEnv3D(FlexEnv):
             obs['goal_pcd_points'] = self.goal_pcd_points
             return obs
         elif h5_data is not None: # load initial state from h5 data
-            # TODO update softgym code so other meshes are loaded
             config = self.get_default_config()
             config['camera_params']['default_camera']['pos'][1] += 1.0
             self.set_scene(config=config, other_params=h5_data)
             center_object()
             for i in range(100): # let cloth settle into goal position
                 pyflex.step()
-                # if i % 2 == 0:
-                    # pyflex.render()
             self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
 
             # Set starting position
@@ -499,9 +460,6 @@ class ClothEnv3D(FlexEnv):
             self.set_pyflex_positions(positions)
             for i in range(100):
                 pyflex.step()
-                # if i % 2 == 0:
-                    # pyflex.render()
-            # obs = self.get_observations(cloth_only=False)
             obs = self._reset()
             return obs
         elif crumple: # init crumpled cloth
@@ -575,6 +533,7 @@ class ClothEnv3D(FlexEnv):
         #     self.video_frames.append(self.render(mode="rgb_array"))
 
         obs = self.get_observations(cloth_only=False)
+        self.goal_img = obs['color'].copy()
         return obs
 
     def step(
@@ -584,7 +543,9 @@ class ClothEnv3D(FlexEnv):
         """If record_continuous_video is set to True, will record an image for each sub-step"""
         if self.record: 
             self.start_record()
-            self.video_frames.append(self.get_image())
+            prev_frames = len(self.video_frames)
+            merged_img = merge_images(self.get_image(), self.goal_img)
+            self.video_frames.append(merged_img)
 
         action_scaled = self._step(action)
         nobs = self.get_observations(cloth_only=False)
@@ -593,7 +554,12 @@ class ClothEnv3D(FlexEnv):
         self.time_step += 1
 
         if self.record:
-            self.video_frames.append(self.get_image())
+            # delta_frames = len(self.video_frames) - prev_frames 
+            for frame in range(prev_frames, len(self.video_frames)):
+                merged_img = merge_images(self.video_frames[frame], self.goal_img)
+                self.video_frames[frame] = merged_img
+            merged_img = merge_images(self.get_image(), self.goal_img)
+            self.video_frames.append(merged_img)
             info = {
                 "cam_frames": copy.copy(self.video_frames)
             }
