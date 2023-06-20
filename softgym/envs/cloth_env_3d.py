@@ -10,6 +10,15 @@ from softgym.action_space.action_space import PickerPickPlace
 from softgym.utils.gemo_utils import *
 from softgym.utils.pyflex_utils import center_object
 
+
+def center_object():
+    pos = pyflex.get_positions().reshape(-1, 4)
+    mid_x = (np.max(pos[:, 0]) + np.min(pos[:, 0]))/2
+    mid_y = (np.max(pos[:, 2]) + np.min(pos[:, 2]))/2
+    pos[:, [0, 2]] -= np.array([mid_x, mid_y])
+    pyflex.set_positions(pos.flatten())
+
+
 def vectorized_range(start, end):
     """  Return an array of NxD, iterating from the start to the end"""
     N = int(np.max(end - start)) + 1
@@ -386,9 +395,9 @@ class ClothEnv3D(FlexEnv):
         }
         return obs
 
-    def set_scene(self, config=None, state=None):
+    def set_scene(self, config=None, state=None, other_params=None):
         render_mode = 2  # cloth
-        env_idx = 0
+        env_idx = 0 if other_params is None else 1 # 0 for square cloth, 1 for other meshes
         if config is None:
             config = self.config
         
@@ -413,6 +422,30 @@ class ClothEnv3D(FlexEnv):
             ],
             dtype=np.float32,
         )
+        if other_params is not None:
+            # 'all_keypoint_groups', 'cloth_stiff', 'init_particle_pos',
+            # 'init_rgb', 'mesh_bend_edges', 'mesh_faces', 'mesh_nocs_verts', 
+            # 'mesh_shear_edges', 'mesh_stretch_edges', 'mesh_verts', 
+            # 'particle_pos', 'particle_vel', 'phase', 'shape_pos', 'task_rgb'
+            vertices = other_params['vertices']
+            faces = other_params['faces']
+            stretch_edges = other_params['stretch_edges']
+            bend_edges = other_params['bend_edges']
+            shear_edges = other_params['shear_edges']
+            scene_params = np.concatenate([scene_params, np.array(
+                [
+                    vertices.shape[0]/3, 
+                    faces.shape[0]/3,
+                    stretch_edges.shape[0]/2,
+                    bend_edges.shape[0]/2,
+                    shear_edges.shape[0]/2,
+                    *vertices.reshape(-1),
+                    *faces.reshape(-1),
+                    *stretch_edges.reshape(-1),
+                    *bend_edges.reshape(-1),
+                    *shear_edges.reshape(-1)
+                ]
+            )])
         pyflex.set_scene(env_idx, scene_params, 0)
 
         if state is not None:
@@ -422,7 +455,7 @@ class ClothEnv3D(FlexEnv):
         self.current_config = deepcopy(config)
 
     def set_pyflex_positions(self, positions):
-        if positions.shape[1] == 3: 
+        if len(positions.shape) > 1 and  positions.shape[1] == 3: 
             positions = np.concatenate([positions, np.ones([positions.shape[0], 1])], axis=1)
         pyflex.set_positions(positions)
         pyflex.step()
@@ -432,7 +465,8 @@ class ClothEnv3D(FlexEnv):
               start_state=None, 
               goal_state=None, 
               config_id=None, 
-              set_to_flat=False, 
+              h5_data=None,
+            #   set_to_flat=False, 
               end_record=True, 
               sample_cloth_size=False,
               crumple=False):
@@ -442,27 +476,33 @@ class ClothEnv3D(FlexEnv):
         if self.recording and end_record:
             self.end_record()
 
-        # if set_to_flat:
-        #     if config_id is None:
-        #         raise ValueError("config_id must be specified if set_to_flat is True")
-        #     obs = super().reset(config_id=config_id)
-        #     # reset_state = self._get_flat_pos()
-        #     # self.goal_pcd_points = self._set_to_flat()
-        #     self.goal_pcd_points = self._get_flat_pos()
-        #     # self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
-        #     self.update_camera(
-        #         self.current_config["camera_name"],
-        #         self.current_config["camera_params"][self.current_config["camera_name"]],
-        #     )
-        #     obs = self.get_observations(cloth_only=False)
-        #     return obs
-
         if config_id is not None: # load initial state from cached states
-            # Must be called after set to flat for eval
             obs = super().reset(config_id=config_id)
             # Update goal pcd points
             self.goal_pcd_points = self._get_flat_pos()
             obs['goal_pcd_points'] = self.goal_pcd_points
+            return obs
+        elif h5_data is not None: # load initial state from h5 data
+            # TODO update softgym code so other meshes are loaded
+            config = self.get_default_config()
+            config['camera_params']['default_camera']['pos'][1] += 1.0
+            self.set_scene(config=config, other_params=h5_data)
+            center_object()
+            for i in range(100): # let cloth settle into goal position
+                pyflex.step()
+                # if i % 2 == 0:
+                    # pyflex.render()
+            self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
+
+            # Set starting position
+            positions = h5_data['positions'][:].astype(np.float32)
+            self.set_pyflex_positions(positions)
+            for i in range(100):
+                pyflex.step()
+                # if i % 2 == 0:
+                    # pyflex.render()
+            # obs = self.get_observations(cloth_only=False)
+            obs = self._reset()
             return obs
         elif crumple: # init crumpled cloth
             self.crumple_cloth(vary_cloth_size=sample_cloth_size)
@@ -535,39 +575,6 @@ class ClothEnv3D(FlexEnv):
         #     self.video_frames.append(self.render(mode="rgb_array"))
 
         obs = self.get_observations(cloth_only=False)
-
-        # plot start and goal states in plotly
-        if False:
-            import plotly.graph_objects as go
-            fig = go.Figure(data=[
-                go.Scatter3d(
-                x=obs['object_pcd_points'][:, 0],
-                y=obs['object_pcd_points'][:, 2],
-                z=obs['object_pcd_points'][:, 1],
-                mode='markers',
-                marker=dict(
-                    size=5,
-                    color='blue',
-                    opacity=0.8
-                    )
-                ),
-                go.Scatter3d(
-                x=obs['goal_pcd_points'][:, 0],
-                y=obs['goal_pcd_points'][:, 2],
-                z=obs['goal_pcd_points'][:, 1],
-                mode='markers',
-                marker=dict(
-                    size=5,
-                    color='red',
-                    opacity=0.8
-                    )
-                )
-            ])
-            fig.update_layout(scene_zaxis_range=[0, 0.5])
-            fig.update_layout(scene_xaxis_range=[-0.3, 0.3])
-            fig.update_layout(scene_yaxis_range=[-0.3, 0.7])
-            fig.show()
-
         return obs
 
     def step(

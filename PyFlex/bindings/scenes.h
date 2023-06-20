@@ -28,6 +28,7 @@ public:
 };
 
 #include "softgym_scenes/softgym_cloth.h"
+#include "softgym_scenes/softgym_3dcloth.h"
 #include "softgym_scenes/softgym_fluid.h"
 #include "softgym_scenes/softgym_softbody.h"
 #include "softgym_scenes/softgym_rigid_cloth.h"
