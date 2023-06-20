@@ -23,7 +23,7 @@ void build_any_cloth(float* ptr,
 		x = float(ptr[base + i * 3]);
 		y = float(ptr[base + i * 3 + 1]);
 		z = float(ptr[base + i * 3 + 2]);
-		cout << "add point x: " << x << " y: " << y << " z: " << z << endl;
+		// cout << "add point x: " << x << " y: " << y << " z: " << z << endl;
 		g_buffers->positions.push_back(Vec4(x, y, z, 1. / mass));
 		g_buffers->velocities.push_back(Vec3(0, 0, 0));
 		g_buffers->phases.push_back(phase);

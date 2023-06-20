@@ -443,9 +443,10 @@ class ClothEnv3D(FlexEnv):
 
         if config_id is not None: # load initial state from cached states
             obs = super().reset(config_id=config_id)
-            # Update goal pcd points
+            # Update goal
             self.goal_pcd_points = self._get_flat_pos()
             obs['goal_pcd_points'] = self.goal_pcd_points
+            self.goal_img, _ = self._get_rgbd()
             # For smoothing only
             self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
             return obs
@@ -457,6 +458,7 @@ class ClothEnv3D(FlexEnv):
             for i in range(100): # let cloth settle into goal position
                 pyflex.step()
             self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
+            self.goal_img, _ = self._get_rgbd()
             # For smoothing only
             self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
 
@@ -479,6 +481,7 @@ class ClothEnv3D(FlexEnv):
             # then load those states
             if goal_state is not None and start_state is not None:
                 self.goal_pcd_points = np.load(goal_state, allow_pickle=True)
+                self.goal_img, _ = self._get_rgbd()
                 # For smoothing only
                 self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
                 self.set_scene()
@@ -489,6 +492,7 @@ class ClothEnv3D(FlexEnv):
                 if prob < self.fold_unfold_ratio: # load folding goal
                     config = self.get_default_config()
                     self.goal_pcd_points, cloth_dim, goal_path = self._sample_cloth_pose(self.states_list)
+                    self.goal_img, _ = self._get_rgbd()
                     
                     # For smoothing only
                     self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
@@ -525,6 +529,7 @@ class ClothEnv3D(FlexEnv):
                     else:
                         self.set_pyflex_positions(reset_state)
                     
+                    self.goal_img, _ = self._get_rgbd()
                     # For smoothing only
                     self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
                     
@@ -534,6 +539,7 @@ class ClothEnv3D(FlexEnv):
                 self.particle_num = pyflex.get_n_particles()
                 self._set_to_flat()
                 self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
+                self.goal_img, _ = self._get_rgbd()
                 # For smoothing only
                 self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
 
@@ -549,7 +555,6 @@ class ClothEnv3D(FlexEnv):
         #     self.video_frames.append(self.render(mode="rgb_array"))
 
         obs = self.get_observations(cloth_only=False)
-        self.goal_img = obs['color'].copy()
         return obs
 
     def step(
