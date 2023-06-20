@@ -207,6 +207,7 @@ class ClothEnv3D(FlexEnv):
         return config
 
     def _get_flat_pos(self):
+        """Only for rectangular cloth"""
         # if self.current_config is not None:
         dimx, dimy = self.current_config["ClothSize"]
         # else:
@@ -223,20 +224,20 @@ class ClothEnv3D(FlexEnv):
         curr_pos[:, 1] = 5e-3  # Set specifally for particle radius of 0.00625
         return curr_pos
 
-    def _get_flat_pos_vcd(self):
-        # self._get_current_covered_area(pyflex.get_positions().reshape(-))
-        cloth_dimx, cloth_dimz = self.config["ClothSize"]
-        N = cloth_dimx * cloth_dimz
-        px = np.linspace(0, cloth_dimx * self.cloth_particle_radius, cloth_dimx)
-        py = np.linspace(0, cloth_dimz * self.cloth_particle_radius, cloth_dimz)
-        xx, yy = np.meshgrid(px, py)
-        new_pos = np.empty(shape=(N, 4), dtype=np.float)
-        new_pos[:, 0] = xx.flatten()
-        new_pos[:, 1] = self.cloth_particle_radius
-        new_pos[:, 2] = yy.flatten()
-        new_pos[:, 3] = 1. 
-        new_pos[:, :3] -= np.mean(new_pos[:, :3], axis=0) #see if this is important
-        return new_pos[:, :3]
+    # def _get_flat_pos_vcd(self):
+    #     # self._get_current_covered_area(pyflex.get_positions().reshape(-))
+    #     cloth_dimx, cloth_dimz = self.config["ClothSize"]
+    #     N = cloth_dimx * cloth_dimz
+    #     px = np.linspace(0, cloth_dimx * self.cloth_particle_radius, cloth_dimx)
+    #     py = np.linspace(0, cloth_dimz * self.cloth_particle_radius, cloth_dimz)
+    #     xx, yy = np.meshgrid(px, py)
+    #     new_pos = np.empty(shape=(N, 4), dtype=np.float)
+    #     new_pos[:, 0] = xx.flatten()
+    #     new_pos[:, 1] = self.cloth_particle_radius
+    #     new_pos[:, 2] = yy.flatten()
+    #     new_pos[:, 3] = 1. 
+    #     new_pos[:, :3] -= np.mean(new_pos[:, :3], axis=0) #see if this is important
+    #     return new_pos[:, :3]
     
     def _get_current_covered_area(self, pos):
         """
@@ -445,6 +446,8 @@ class ClothEnv3D(FlexEnv):
             # Update goal pcd points
             self.goal_pcd_points = self._get_flat_pos()
             obs['goal_pcd_points'] = self.goal_pcd_points
+            # For smoothing only
+            self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
             return obs
         elif h5_data is not None: # load initial state from h5 data
             config = self.get_default_config()
@@ -454,6 +457,8 @@ class ClothEnv3D(FlexEnv):
             for i in range(100): # let cloth settle into goal position
                 pyflex.step()
             self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
+            # For smoothing only
+            self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
 
             # Set starting position
             positions = h5_data['positions'][:].astype(np.float32)
@@ -474,6 +479,8 @@ class ClothEnv3D(FlexEnv):
             # then load those states
             if goal_state is not None and start_state is not None:
                 self.goal_pcd_points = np.load(goal_state, allow_pickle=True)
+                # For smoothing only
+                self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
                 self.set_scene()
                 self.particle_num = pyflex.get_n_particles()
                 self.set_pyflex_positions(np.load(start_state, allow_pickle=True))
@@ -482,6 +489,10 @@ class ClothEnv3D(FlexEnv):
                 if prob < self.fold_unfold_ratio: # load folding goal
                     config = self.get_default_config()
                     self.goal_pcd_points, cloth_dim, goal_path = self._sample_cloth_pose(self.states_list)
+                    
+                    # For smoothing only
+                    self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
+
                     config['ClothSize'] = cloth_dim
                     self.set_scene(config=config)
                     self.particle_num = pyflex.get_n_particles()
@@ -514,12 +525,17 @@ class ClothEnv3D(FlexEnv):
                     else:
                         self.set_pyflex_positions(reset_state)
                     
+                    # For smoothing only
+                    self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
+                    
                     # print(f"Reset num particles: {self.particle_num}, train: {not self.record}")
             else: # otherwise, just set to flat
                 self.set_scene()
                 self.particle_num = pyflex.get_n_particles()
                 self._set_to_flat()
                 self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
+                # For smoothing only
+                self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
 
             obs = self._reset()
             return obs
