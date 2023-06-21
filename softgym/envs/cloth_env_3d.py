@@ -481,10 +481,13 @@ class ClothEnv3D(FlexEnv):
             # then load those states
             if goal_state is not None and start_state is not None:
                 self.goal_pcd_points = np.load(goal_state, allow_pickle=True)
+                self.set_scene()
+
+                self.set_pyflex_positions(self.goal_pcd_points)
                 self.goal_img, _ = self._get_rgbd()
                 # For smoothing only
                 self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
-                self.set_scene()
+                
                 self.particle_num = pyflex.get_n_particles()
                 self.set_pyflex_positions(np.load(start_state, allow_pickle=True))
             elif self.states_list is not None: # or, sample a start state and goal state
