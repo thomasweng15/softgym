@@ -12,7 +12,7 @@ from softgym.utils.gemo_utils import *
 from softgym.utils.pyflex_utils import center_object
 
 
-def merge_images(img1, img2, alpha=0.5):
+def merge_images(img1, img2, alpha=0.7):
     # weighted combination of current and goal image
     return cv2.addWeighted(img1, alpha, img2, 1-alpha, 0)
 
@@ -137,6 +137,7 @@ class ClothEnv3D(FlexEnv):
 
         # cloth shape
         self.config = self.get_default_config()
+        self.current_config = None
 
         self.update_camera(
             self.config["camera_name"],
@@ -157,9 +158,6 @@ class ClothEnv3D(FlexEnv):
 
         self.goal_pcd_points = None
         self.goal_img = None
-        # self.extrinsic_matrix = get_extrinsic_matrix(self)
-        # self.corner_idxs = self.get_corner_idxs()
-        # self.edge_idxs = self.get_edge_idxs()
 
     def _sample_cloth_pose(self, pose_list):
         poses_path = random.sample(pose_list, 1)[0]
@@ -307,45 +305,29 @@ class ClothEnv3D(FlexEnv):
     def _get_cloud(self):
         return pyflex.get_positions().reshape(-1, 4)[:, :3]
 
-    def get_corner_idxs(self):
-        """Get the corner idxs of the cloth mesh"""
-        x, y = self.current_config['ClothSize']
-        corner_idxs = np.array([
-            0, x-1, x*(y-1), x*y-1
-        ])
-        return corner_idxs
+    # def get_corner_idxs(self):
+    #     """Get the corner idxs of the cloth mesh"""
+    #     x, y = self.current_config['ClothSize']
+    #     corner_idxs = np.array([
+    #         0, x-1, x*(y-1), x*y-1
+    #     ])
+    #     return corner_idxs
 
-    def get_edge_idxs(self):
-        """Get edge idxs of the cloth mesh"""
-        x, y = self.current_config['ClothSize']
-        edge_idxs = np.array([
-            np.arange(x), np.arange(x*(y-1), x*y), np.arange(0, x*y, x), np.arange(x-1, x*y, x)
-        ]).flatten()
-        return edge_idxs
+    # def get_edge_idxs(self):
+    #     """Get edge idxs of the cloth mesh"""
+    #     x, y = self.current_config['ClothSize']
+    #     edge_idxs = np.array([
+    #         np.arange(x), np.arange(x*(y-1), x*y), np.arange(0, x*y, x), np.arange(x-1, x*y, x)
+    #     ]).flatten()
+    #     return edge_idxs
 
     def get_observations(self, cloth_only=True):
         rgb_cloth, depth_cloth = self._get_rgbd(cloth_only=True)
         rgb, depth = self._get_rgbd(cloth_only=cloth_only)
         object_pcd_points = self._get_cloud()
-        # world_coords = get_world_coords(rgb_cloth, depth_cloth, self)
 
-        # start = time.time()
         extrinsic_matrix = get_extrinsic_matrix(self)
         visible_idxs, hidden_idxs = get_visible_idxs(object_pcd_points, depth_cloth, extrinsic_matrix)
-        # duration = time.time() - start
-        # print("get_visible_idxs took {} seconds".format(duration))
-
-        # # all depth points, not cloth nodes
-        # start = time.time()
-        # visible_idxs2, hidden_idxs2 = get_observable_particle_index(world_coords, object_pcd_points, rgb_cloth, depth_cloth)
-        # duration = time.time() - start
-        # print("get_observable_particle_index took {} seconds".format(duration))
-
-        # # not working, all depth points, not cloth nodes
-        # start = time.time()
-        # visible_idxs, hidden_idxs = get_observable_particle_index_vectorized(world_coords, object_pcd_points, rgb_cloth, depth_cloth)
-        # duration = time.time() - start
-        # print("get_observable_particle_index_vectorized took {} seconds".format(duration))
         
         obs = {
             "color": rgb, 
@@ -387,7 +369,7 @@ class ClothEnv3D(FlexEnv):
             ],
             dtype=np.float32,
         )
-        if other_params is not None:
+        if other_params is not None: # for arbitrary meshes
             # 'all_keypoint_groups', 'cloth_stiff', 'init_particle_pos',
             # 'init_rgb', 'mesh_bend_edges', 'mesh_faces', 'mesh_nocs_verts', 
             # 'mesh_shear_edges', 'mesh_stretch_edges', 'mesh_verts', 
@@ -418,6 +400,7 @@ class ClothEnv3D(FlexEnv):
         else:
             self.update_camera(config['camera_name'], camera_params)
         self.current_config = deepcopy(config)
+        self.particle_num = pyflex.get_n_particles()
 
     def set_pyflex_positions(self, positions):
         if len(positions.shape) > 1 and  positions.shape[1] == 3: 
@@ -431,24 +414,39 @@ class ClothEnv3D(FlexEnv):
               goal_state=None, 
               config_id=None, 
               h5_data=None,
-            #   set_to_flat=False, 
               end_record=True, 
               sample_cloth_size=False,
               crumple=False):
-        
+        """There are multiple ways to reset the environment due to 
+            slight differences in reset procedure for different 
+            training and testing experiments.
+
+            All forms of reset should load the goal configuration
+            to set variables for metrics, then load the start configuration.
+        """
+        self.time_step = 0
+
         if self.recording:
             self.start_record()
         if self.recording and end_record:
             self.end_record()
 
         if config_id is not None: # load initial state from cached states
-            obs = super().reset(config_id=config_id)
-            # Update goal
+            # Set config and scene
+            self.set_scene(self.cached_configs[config_id], self.cached_init_states[config_id])
+            
+            # Set goal
             self.goal_pcd_points = self._get_flat_pos()
-            obs['goal_pcd_points'] = self.goal_pcd_points
+            self.set_pyflex_positions(self.goal_pcd_points)
+            # pyflex.set_positions(self.goal_pcd_points)
             self.goal_img, _ = self._get_rgbd()
-            # For smoothing only
+            
+            # Compute metrics for smoothing
             self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
+
+            # Set to start state
+            obs = super().reset(config_id=config_id) # calls self._reset()
+            obs['goal_pcd_points'] = self.goal_pcd_points
             return obs
         elif h5_data is not None: # load initial state from h5 data
             config = self.get_default_config()
@@ -459,7 +457,8 @@ class ClothEnv3D(FlexEnv):
                 pyflex.step()
             self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
             self.goal_img, _ = self._get_rgbd()
-            # For smoothing only
+
+            # Compute metrics for smoothing
             self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
 
             # Set starting position
@@ -467,28 +466,20 @@ class ClothEnv3D(FlexEnv):
             self.set_pyflex_positions(positions)
             for i in range(100):
                 pyflex.step()
-            obs = self._reset()
-            return obs
-        elif crumple: # init crumpled cloth
+        elif crumple: # init crumpled cloth - data collection only
             self.crumple_cloth(vary_cloth_size=sample_cloth_size)
-            self._set_picker_pos(self.reset_pos)
-            obs = self.get_observations(cloth_only=False)
-            return obs
-        else: # load square cloth
-            self.prev_reward = 0.0
-            self.time_step = 0
+        else: # load rectangular cloth
             # if start state and goal state are both specified,
             # then load those states
             if goal_state is not None and start_state is not None:
                 self.goal_pcd_points = np.load(goal_state, allow_pickle=True)
                 self.set_scene()
-
                 self.set_pyflex_positions(self.goal_pcd_points)
                 self.goal_img, _ = self._get_rgbd()
-                # For smoothing only
+
+                # Compute metrics for smoothing
                 self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
                 
-                self.particle_num = pyflex.get_n_particles()
                 self.set_pyflex_positions(np.load(start_state, allow_pickle=True))
             elif self.states_list is not None: # or, sample a start state and goal state
                 prob = np.random.random()
@@ -497,57 +488,55 @@ class ClothEnv3D(FlexEnv):
                     self.goal_pcd_points, cloth_dim, goal_path = self._sample_cloth_pose(self.states_list)
                     self.goal_img, _ = self._get_rgbd()
                     
-                    # For smoothing only
-                    self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
-
                     config['ClothSize'] = cloth_dim
                     self.set_scene(config=config)
-                    self.particle_num = pyflex.get_n_particles()
                     if self.use_subgoals: # load start state as previous pose
                         reset_state = np.load(Path(goal_path).parent / 'prev_object_pcd.npy', allow_pickle=True)
                     else:
                         reset_state = self._get_flat_pos()
                     self.set_pyflex_positions(reset_state)
                 else: # load unfolding goal
+                    # Set up config and scene
                     config = self.get_default_config()
-                    reset_state, cloth_dim, sample_path = self._sample_cloth_pose(self.states_list)
+                    start_state, cloth_dim, sample_path = self._sample_cloth_pose(self.states_list)
                     config['ClothSize'] = cloth_dim
                     self.set_scene(config=config)
-                    self.particle_num = pyflex.get_n_particles()
                     
+                    # Set up goal
                     goal_pcd_path = Path(sample_path).parent / 'goal_pcd.npy'
                     self.goal_pcd_points = np.load(goal_pcd_path, allow_pickle=True) if goal_pcd_path.exists() else None                    
                     if np.any(self.goal_pcd_points == None): # goal not saved in dataset
                         self._set_to_flat()
-                        self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
-
+                        self.goal_pcd_points = self._get_cloud()
                     if flip_cloth: 
                         self.goal_pcd_points = self._rotate_positions(self.goal_pcd_points)
-                        self.set_pyflex_positions(reset_state)
-                        reset_state = self._rotate_positions(reset_state)
-                        self.set_pyflex_positions(reset_state)
-                        max_z = reset_state[:, 1].max()
+
+                    # Get goal image for video overlay
+                    self.set_pyflex_positions(self.goal_pcd_points)
+                    self.goal_img, _ = self._get_rgbd()
+
+                    # Compute metrics for smoothing
+                    self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
+
+                    # Set to start state
+                    if flip_cloth: 
+                        start_state = self._rotate_positions(start_state)
+                    self.set_pyflex_positions(start_state)
+                    
+                    if flip_cloth: # Let cloth settle
+                        max_z = start_state[:, 1].max()
                         for i in range(int(max_z / 0.003) + 1):
                             pyflex.step()
-                    else:
-                        self.set_pyflex_positions(reset_state)
-                    
-                    self.goal_img, _ = self._get_rgbd()
-                    # For smoothing only
-                    self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
-                    
-                    # print(f"Reset num particles: {self.particle_num}, train: {not self.record}")
             else: # otherwise, just set to flat
                 self.set_scene()
-                self.particle_num = pyflex.get_n_particles()
                 self._set_to_flat()
                 self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
                 self.goal_img, _ = self._get_rgbd()
                 # For smoothing only
                 self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
 
-            obs = self._reset()
-            return obs
+        obs = self._reset()
+        return obs
 
     def _reset(self):
         if hasattr(self, "action_tool"):
@@ -676,41 +665,7 @@ class ClothEnv3D(FlexEnv):
 
         self.goal_pcd_points = self._rotate_positions(self.goal_pcd_points)
 
-        # plotly 3D plot to show cloth_pos_rot
-        if False:
-            import plotly.graph_objects as go
-            fig = go.Figure(data=[
-                go.Scatter3d(
-                x=cloth_pos_rot[:, 0],
-                y=cloth_pos_rot[:, 1],
-                z=cloth_pos_rot[:, 2],
-                mode='markers',
-                name="rotated",
-                marker=dict(
-                    size=5,
-                    color='blue',
-                    opacity=0.8
-                    )
-                ),
-                go.Scatter3d(
-                x=cloth_pos[:, 0],
-                y=cloth_pos[:, 1],
-                z=cloth_pos[:, 2],
-                mode='markers',
-                name="original",
-                marker=dict(
-                    size=5,
-                    color='red',
-                    opacity=0.8
-                    )
-                )
-            ])
-            fig.update_layout(scene_zaxis_range=[-0.2, 0.5])
-            fig.update_layout(scene_xaxis_range=[-0.3, 0.3])
-            fig.update_layout(scene_yaxis_range=[-0.3, 0.3])
-            fig.show()
-
-        self.set_pyflex_positions(cloth_pos)
+        self.set_pyflex_positions(cloth_pos_rot)
 
         for i in range(100):
             pyflex.step()
