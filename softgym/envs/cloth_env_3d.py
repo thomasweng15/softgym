@@ -237,12 +237,29 @@ class ClothEnv3D(FlexEnv):
     #     new_pos[:, :3] -= np.mean(new_pos[:, :3], axis=0) #see if this is important
     #     return new_pos[:, :3]
     
+    # def _set_to_flatten(self):
+    #     # self._get_current_covered_area(pyflex.get_positions().reshape(-))
+    #     cloth_dimx, cloth_dimz = self.current_config['ClothSize']
+    #     N = cloth_dimx * cloth_dimz
+    #     px = np.linspace(0, cloth_dimx * self.cloth_particle_radius, cloth_dimx)
+    #     py = np.linspace(0, cloth_dimz * self.cloth_particle_radius, cloth_dimz)
+    #     xx, yy = np.meshgrid(px, py)
+    #     new_pos = np.empty(shape=(N, 4), dtype=np.float)
+    #     new_pos[:, 0] = xx.flatten()
+    #     new_pos[:, 1] = self.cloth_particle_radius
+    #     new_pos[:, 2] = yy.flatten()
+    #     new_pos[:, 3] = 1.
+    #     new_pos[:, :3] -= np.mean(new_pos[:, :3], axis=0)
+    #     pyflex.set_positions(new_pos.flatten())
+    #     pyflex.step()
+    #     return self._get_current_covered_area(new_pos)
+
     def _get_current_covered_area(self, pos):
         """
         Calculate the covered area by taking max x,y cood and min x,y coord, create a discritized grid between the points
         :param pos: Current positions of the particle states
         """
-        pos = np.reshape(pos, [-1, 3])
+        pos = np.reshape(pos[:, :3], [-1, 3])
         min_x = np.min(pos[:, 0])
         min_y = np.min(pos[:, 2])
         max_x = np.max(pos[:, 0])
@@ -408,6 +425,31 @@ class ClothEnv3D(FlexEnv):
         pyflex.set_positions(positions)
         pyflex.step()
 
+    def compute_normalised_performance(self, current_pos):
+        curr_covered_area = self._get_current_covered_area(current_pos)
+        # Edge case: due to discretization, there can be cases where 
+        # init_covered_area > self.max_covered_area. In these cases, we
+        # should error out because the cloth is already in the goal state.
+        if self.init_covered_area > self.max_covered_area:
+            print("warning: init covered area > max covered area")
+            import IPython; IPython.embed()
+
+        # Edge case: due to discretization, there can be cases where
+        # curr_covered_area > max_covered_area. In these cases, we 
+        # set the normalized performance metrics to 1.
+        if curr_covered_area > self.max_covered_area:
+            normalised_improvement = 1.
+            normalised_coverage = 1.
+        else:
+            normalised_improvement =  (curr_covered_area - self.init_covered_area) / (self.max_covered_area - self.init_covered_area)
+            normalised_coverage = (curr_covered_area) / (self.max_covered_area)
+
+        # One final catch for edge cases
+        if normalised_improvement > 1:
+            print("warning: normalised improvement > 1")
+            import IPython; IPython.embed()
+        return normalised_improvement, normalised_coverage
+
     def reset(self, 
               flip_cloth=False, 
               start_state=None, 
@@ -438,15 +480,15 @@ class ClothEnv3D(FlexEnv):
             # Set goal
             self.goal_pcd_points = self._get_flat_pos()
             self.set_pyflex_positions(self.goal_pcd_points)
-            # pyflex.set_positions(self.goal_pcd_points)
             self.goal_img, _ = self._get_rgbd()
             
-            # Compute metrics for smoothing
-            self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
-
             # Set to start state
             obs = super().reset(config_id=config_id) # calls self._reset()
             obs['goal_pcd_points'] = self.goal_pcd_points
+
+            # Compute metrics for smoothing
+            self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
+            self.init_covered_area = self._get_current_covered_area(obs['object_pcd_points'])
             return obs
         elif h5_data is not None: # load initial state from h5 data
             config = self.get_default_config()
@@ -458,10 +500,7 @@ class ClothEnv3D(FlexEnv):
             self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
             self.goal_img, _ = self._get_rgbd()
 
-            # Compute metrics for smoothing
-            self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
-
-            # Set starting position
+            # Set to start state
             positions = h5_data['positions'][:].astype(np.float32)
             self.set_pyflex_positions(positions)
             for i in range(100):
@@ -472,14 +511,17 @@ class ClothEnv3D(FlexEnv):
             # if start state and goal state are both specified,
             # then load those states
             if goal_state is not None and start_state is not None:
-                self.goal_pcd_points = np.load(goal_state, allow_pickle=True)
+                # Set scene
                 self.set_scene()
+                
+                # Set goal
+                self.goal_pcd_points = np.load(goal_state, allow_pickle=True)
+                # self.max_covered_area = self._set_to_flatten()
+                # self.goal_pcd_points = self._get_cloud()
                 self.set_pyflex_positions(self.goal_pcd_points)
                 self.goal_img, _ = self._get_rgbd()
 
-                # Compute metrics for smoothing
-                self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
-                
+                # Set to start state
                 self.set_pyflex_positions(np.load(start_state, allow_pickle=True))
             elif self.states_list is not None: # or, sample a start state and goal state
                 prob = np.random.random()
@@ -510,13 +552,8 @@ class ClothEnv3D(FlexEnv):
                         self.goal_pcd_points = self._get_cloud()
                     if flip_cloth: 
                         self.goal_pcd_points = self._rotate_positions(self.goal_pcd_points)
-
-                    # Get goal image for video overlay
                     self.set_pyflex_positions(self.goal_pcd_points)
                     self.goal_img, _ = self._get_rgbd()
-
-                    # Compute metrics for smoothing
-                    self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
 
                     # Set to start state
                     if flip_cloth: 
@@ -530,12 +567,16 @@ class ClothEnv3D(FlexEnv):
             else: # otherwise, just set to flat
                 self.set_scene()
                 self._set_to_flat()
-                self.goal_pcd_points = pyflex.get_positions().reshape(-1, 4)[:, :3]
+                self.goal_pcd_points = self._get_cloud()
                 self.goal_img, _ = self._get_rgbd()
-                # For smoothing only
-                self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
 
         obs = self._reset()
+
+        # Compute metrics for smoothing
+        self.max_covered_area = self._get_current_covered_area(self.goal_pcd_points)
+        self.init_covered_area = self._get_current_covered_area(obs['object_pcd_points'])
+        # if self.init_covered_area / self.max_covered_area > 0.8:
+            # print("warning: init covered area / max covered area > 0.8")
         return obs
 
     def _reset(self):
